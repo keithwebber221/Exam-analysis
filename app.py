@@ -568,27 +568,41 @@ def export_tracking_excel_bytes(pct_matrix, rank_matrix, student_info,
 # 側邊欄導航
 # ══════════════════════════════════════════════════════════════
 st.sidebar.markdown("""
-<div style="text-align:center;padding:22px 10px 16px;
-border-bottom:1px solid rgba(255,255,255,0.15);margin-bottom:8px;">
-  <div style="font-size:2.4rem;margin-bottom:8px;">📊</div>
-  <div style="font-size:1.1rem;font-weight:800;color:#FFFFFF;letter-spacing:0.5px;
-  line-height:1.3;">試卷分析系統</div>
-  <div style="font-size:0.72rem;color:rgba(255,255,255,0.5);margin-top:5px;">
-  DSE Exam Analysis</div>
+<div style="text-align:center;padding:28px 16px 22px;
+border-bottom:1px solid rgba(255,255,255,0.15);margin-bottom:10px;">
+  <svg width="56" height="56" viewBox="0 0 56 56" fill="none"
+       xmlns="http://www.w3.org/2000/svg"
+       style="display:block;margin:0 auto 12px;">
+    <rect width="56" height="56" rx="16" fill="rgba(255,255,255,0.13)"/>
+    <rect x="10" y="32" width="9" height="15" rx="2.5" fill="rgba(255,255,255,0.92)"/>
+    <rect x="23" y="22" width="9" height="25" rx="2.5" fill="rgba(255,255,255,0.92)"/>
+    <rect x="36" y="12" width="9" height="35" rx="2.5" fill="rgba(255,255,255,0.92)"/>
+    <polyline points="14.5,30 27.5,20 40.5,10"
+      stroke="rgba(255,210,60,0.9)" stroke-width="2.2"
+      stroke-linecap="round" fill="none"/>
+    <circle cx="14.5" cy="30" r="2.5" fill="rgba(255,210,60,1)"/>
+    <circle cx="27.5" cy="20" r="2.5" fill="rgba(255,210,60,1)"/>
+    <circle cx="40.5" cy="10" r="2.5" fill="rgba(255,210,60,1)"/>
+  </svg>
+  <div style="font-size:1.08rem;font-weight:800;color:#FFFFFF;
+    letter-spacing:0.8px;line-height:1.3;">試卷分析系統</div>
+  <div style="font-size:0.68rem;color:rgba(255,255,255,0.42);
+    margin-top:5px;letter-spacing:1.5px;text-transform:uppercase;">Exam Analysis</div>
 </div>
 """, unsafe_allow_html=True)
 
 page = st.sidebar.radio(
     "",
-    ["📋 試卷分析", "📈 成績追蹤"],
+    ["試卷分析", "成績追蹤"],
     label_visibility="collapsed"
 )
 
 st.sidebar.markdown("""
-<div style="margin-top:auto;padding:18px 12px 8px;
-border-top:1px solid rgba(255,255,255,0.12);
-text-align:center;font-size:0.68rem;color:rgba(255,255,255,0.3);">
-  試卷分析系統 &nbsp;·&nbsp; 2025-26
+<div style="padding:16px 12px 6px;margin-top:14px;
+border-top:1px solid rgba(255,255,255,0.1);
+text-align:center;font-size:0.66rem;color:rgba(255,255,255,0.28);
+letter-spacing:0.5px;">
+  試卷分析系統 &nbsp;·&nbsp; 2025–26
 </div>
 """, unsafe_allow_html=True)
 
@@ -597,8 +611,8 @@ text-align:center;font-size:0.68rem;color:rgba(255,255,255,0.3);">
 # ══════════════════════════════════════════════════════════════
 # 頁面一：試卷分析
 # ══════════════════════════════════════════════════════════════
-if page == "📋 試卷分析":
-    st.markdown('''<div class="main-header">📋 試卷分析</div>
+if page == "試卷分析":
+    st.markdown('''<div class="main-header">試卷分析</div>
 <div class="sub-header">上載分數記錄表，生成完整試卷分析報告</div>''',
                 unsafe_allow_html=True)
 
@@ -618,7 +632,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
 """, unsafe_allow_html=True)
 
     # ── Step 1: 考試資訊 ──
-    st.markdown("### ① 考試資訊")
+    st.markdown("### 考試資訊")
     col1, col2, col3 = st.columns(3)
     with col1:
         year_input = st.text_input("年度（如 2526）", value="2526", max_chars=4)
@@ -690,7 +704,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                 st.dataframe(class_info, use_container_width=True)
 
             # ── 分析按鈕 ──
-            st.markdown("### ④ 開始分析")
+            st.markdown("### 開始分析")
 
             # ── 分析按鈕（結果存入 session_state，避免重複分析）──
             col_btn, col_reset = st.columns([3, 1])
@@ -802,7 +816,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                     st.dataframe(stats_df, use_container_width=True)
 
                 # ── 圖表預覽（直接顯示原版 PNG，與下載完全一致）──
-                st.markdown("### 📊 圖表預覽")
+                st.markdown("### 圖表預覽")
                 charts_png_ss = ss.charts_png
                 chart_order = [
                     ("01_difficulty_discrimination.png", "① 難度－鑑別度分佈"),
@@ -854,7 +868,7 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                         use_container_width=True)
                 with dl2:
                     st.download_button(
-                        "📥 個人報告 Word ZIP",
+                        "個人報告 Word ZIP",
                         data=ss.docx_zip,
                         file_name=f"{fp}_個人報告_Word.zip",
                         mime="application/zip",
@@ -871,7 +885,7 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                 with dl4:
                     if ss.pdf_zip:
                         st.download_button(
-                            "📥 個人報告 PDF ZIP",
+                            "個人報告 PDF ZIP",
                             data=ss.pdf_zip,
                             file_name=f"{fp}_個人報告_PDF.zip",
                             mime="application/zip",
@@ -881,7 +895,7 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                 with dl5:
                     if ss.merged_pdf:
                         st.download_button(
-                            "📥 合併個人報告 PDF",
+                            "合併個人報告 PDF",
                             data=ss.merged_pdf,
                             file_name=f"{fp}_全班個人報告.pdf",
                             mime="application/pdf",
@@ -899,8 +913,8 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
 # ══════════════════════════════════════════════════════════════
 # 頁面二：成績追蹤
 # ══════════════════════════════════════════════════════════════
-elif page == "📈 成績追蹤":
-    st.markdown('''<div class="main-header">📈 成績追蹤</div>
+elif page == "成績追蹤":
+    st.markdown('''<div class="main-header">成績追蹤</div>
 <div class="sub-header">上載多次考試的分析報告，生成跨試成績追蹤</div>''',
                 unsafe_allow_html=True)
 
@@ -925,7 +939,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.7">
     import performance_tracker as pt
 
     # ── Step 1: 設定 ──
-    st.markdown("### ① 追蹤設定")
+    st.markdown("### 追蹤設定")
     col1, col2 = st.columns(2)
     with col1:
         track_subject  = st.text_input("科目名稱", value="BAFS")
@@ -937,7 +951,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.7">
         st.caption("格式：年度_類別_年級_科目_analysis.xlsx")
 
     # ── Step 2: 上載 ──
-    st.markdown("### ② 上載分析報告（可多選）")
+    st.markdown("### 上載分析報告（可多選）")
     track_files = st.file_uploader(
         "選擇 *_analysis.xlsx 檔案（可多選）",
         type=["xlsx"], accept_multiple_files=True,
@@ -979,7 +993,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.7">
         st.info(f"過濾後：{len(filtered)} 個檔案納入分析")
 
         # ── Step 3: 班別班號（選填）──
-        st.markdown("### ③ 上載最新 scores.xlsx（選填，補充班別班號）")
+        st.markdown("### 補充班別資訊（選填）（選填，補充班別班號）")
         ci_file = st.file_uploader("選擇 scores.xlsx（選填）", type=["xlsx"], key="ci_upload")
         class_info_df = None
         if ci_file:
@@ -1085,7 +1099,7 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                                     azf.writestr(f"{fp_track}_成績追蹤報告.pdf", tracking_pdf)
                             all_track_buf.seek(0)
                             st.download_button(
-                                "📦 一鍵下載全部追蹤報告 ZIP",
+                                "一鍵下載全部追蹤報告",
                                 data=all_track_buf.read(),
                                 file_name=f"{fp_track}_追蹤報告全部.zip",
                                 mime="application/zip",
@@ -1098,7 +1112,7 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                         with tdl1:
                             if tracking_excel:
                                 st.download_button(
-                                    "📥 成績追蹤 Excel",
+                                    "成績追蹤 Excel",
                                     data=tracking_excel,
                                     file_name=f"{fp_track}_成績追蹤.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1106,7 +1120,7 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                         with tdl2:
                             if tracking_docx:
                                 st.download_button(
-                                    "📥 追蹤報告 Word",
+                                    "追蹤報告 Word",
                                     data=tracking_docx,
                                     file_name=f"{fp_track}_成績追蹤報告.docx",
                                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -1116,7 +1130,7 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                         with tdl3:
                             if tracking_pdf:
                                 st.download_button(
-                                    "📥 追蹤報告 PDF",
+                                    "追蹤報告 PDF",
                                     data=tracking_pdf,
                                     file_name=f"{fp_track}_成績追蹤報告.pdf",
                                     mime="application/pdf",
