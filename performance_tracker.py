@@ -255,18 +255,22 @@ def build_tracking_matrix(exam_files, class_info_df=None):
     else:
         student_info = pd.DataFrame({'中文姓名': all_students, '班別': '', '班號': ''})
 
-    # 按班別班號排序
-    def sort_student(row):
-        try:
-            return (str(row['班別']), int(row['班號']))
-        except:
-            return (str(row['班別']), 999)
+    # 按班別（字串升序）→ 班號（數字升序）排序
+    def _ban_num(x):
+        try:    return int(float(str(x)))
+        except: return 9999
 
-    student_info = student_info.sort_values(by=['班別', '班號'], key=lambda col: col.map(
-        lambda x: x if isinstance(x, str) else int(x) if str(x).isdigit() else 999
-    ))
-    pct_matrix  = pct_matrix.loc[student_info['中文姓名']]
-    rank_matrix = rank_matrix.loc[student_info['中文姓名']]
+    student_info = student_info.copy()
+    student_info['_ban_sort'] = student_info['班別'].astype(str).str.strip()
+    student_info['_num_sort'] = student_info['班號'].map(_ban_num)
+    student_info = student_info.sort_values(['_ban_sort', '_num_sort']).drop(
+        columns=['_ban_sort', '_num_sort'])
+    student_info = student_info.reset_index(drop=True)
+
+    # 同步矩陣行順序
+    valid_students = [s for s in student_info['中文姓名'] if s in pct_matrix.index]
+    pct_matrix  = pct_matrix.loc[valid_students]
+    rank_matrix = rank_matrix.loc[valid_students]
 
     return pct_matrix, rank_matrix, exam_labels_sorted, student_info
 

@@ -572,6 +572,29 @@ if page == "📋 試卷分析":
 
                 # ── 下載區（全部從 session_state 讀取，無需重新分析）──
                 st.markdown("### ⬇️ 下載報告")
+
+                # 一鍵下載全部
+                all_zip_buf = io.BytesIO()
+                with zipfile.ZipFile(all_zip_buf, "w", zipfile.ZIP_DEFLATED) as azf:
+                    azf.writestr(f"{fp}_analysis.xlsx",        ss.excel_bytes)
+                    azf.writestr(f"{fp}_個人報告_Word.zip",     ss.docx_zip)
+                    if ss.pdf_zip:
+                        azf.writestr(f"{fp}_個人報告_PDF.zip", ss.pdf_zip)
+                    if ss.merged_pdf:
+                        azf.writestr(f"{fp}_全班個人報告.pdf",  ss.merged_pdf)
+                    azf.writestr(f"{fp}_圖表.zip",             ss.charts_png_zip)
+                all_zip_buf.seek(0)
+                st.download_button(
+                    "📦 一鍵下載全部檔案 ZIP",
+                    data=all_zip_buf.read(),
+                    file_name=f"{fp}_全部報告.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                    type="primary")
+
+                st.markdown("---")
+
+                # 個別下載
                 dl1, dl2, dl3 = st.columns(3)
                 with dl1:
                     st.download_button(
@@ -588,6 +611,15 @@ if page == "📋 試卷分析":
                         mime="application/zip",
                         use_container_width=True)
                 with dl3:
+                    st.download_button(
+                        "📥 圖表 ZIP（PNG）",
+                        data=ss.charts_png_zip,
+                        file_name=f"{fp}_圖表.zip",
+                        mime="application/zip",
+                        use_container_width=True)
+
+                dl4, dl5 = st.columns(2)
+                with dl4:
                     if ss.pdf_zip:
                         st.download_button(
                             "📥 個人報告 PDF ZIP",
@@ -596,10 +628,8 @@ if page == "📋 試卷分析":
                             mime="application/zip",
                             use_container_width=True)
                     else:
-                        st.info("PDF：需 packages.txt 安裝 LibreOffice")
-
-                dl4, dl5 = st.columns(2)
-                with dl4:
+                        st.info("📄 PDF：需 packages.txt 安裝 LibreOffice")
+                with dl5:
                     if ss.merged_pdf:
                         st.download_button(
                             "📥 合併個人報告 PDF",
@@ -608,14 +638,7 @@ if page == "📋 試卷分析":
                             mime="application/pdf",
                             use_container_width=True)
                     else:
-                        st.info("合併 PDF：需 LibreOffice + pypdf")
-                with dl5:
-                    st.download_button(
-                        "📥 圖表 ZIP（PNG）",
-                        data=ss.charts_png_zip,
-                        file_name=f"{fp}_圖表.zip",
-                        mime="application/zip",
-                        use_container_width=True)
+                        st.info("📄 合併 PDF：需 LibreOffice + pypdf")
 
 
         except Exception as e:
