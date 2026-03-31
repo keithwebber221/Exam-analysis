@@ -436,7 +436,63 @@ def export_excel_bytes(item_df, group_df, student_df, stats_df, exam_title):
         student_df_sorted = pd.concat([student_df_sorted[~absent_mask],
                                        student_df_sorted[absent_mask]])
         student_df_sorted.to_excel(writer, sheet_name="3_學生成績", index=True)
-        stats_df.to_excel(writer, sheet_name="4_全班統計", index=False)
+        # ── 4_全班統計：自訂格式（支援多區塊）──
+        ws_stat = wb.create_sheet("4_全班統計")
+        STAT_NAV  = PatternFill("solid", fgColor="1A3A6B")
+        STAT_BLUE = PatternFill("solid", fgColor="D6E4F7")
+        STAT_ALT  = PatternFill("solid", fgColor="F2F4F8")
+        bold_wh   = Font(bold=True,  color="FFFFFF", size=10, name="Microsoft JhengHei")
+        bold_nv   = Font(bold=True,  color="1A3A6B", size=10, name="Microsoft JhengHei")
+        norm_font = Font(bold=False, color="222222", size=10, name="Microsoft JhengHei")
+        ctr_aln   = Alignment(horizontal="center", vertical="center")
+        lft_aln   = Alignment(horizontal="left",   vertical="center", indent=1)
+        ws_stat.column_dimensions["A"].width = 12
+        ws_stat.column_dimensions["B"].width = 32
+        ws_stat.column_dimensions["C"].width = 16
+
+        has_sections = "區塊" in stats_df.columns
+        if has_sections:
+            # 三欄結構：區塊 | 統計項目 | 數值
+            current_block = None
+            data_row_i    = 0
+            for _, srow in stats_df.iterrows():
+                block = str(srow["區塊"])
+                item  = str(srow["統計項目"])
+                val   = srow["數值"]
+                # 區塊標題行
+                if block != current_block:
+                    current_block = block
+                    wr = ws_stat.max_row + 1
+                    ws_stat.row_dimensions[wr].height = 24
+                    ws_stat.merge_cells(f"A{wr}:C{wr}")
+                    c = ws_stat[f"A{wr}"]
+                    c.value = f"　{block}"
+                    c.font  = bold_wh; c.fill = STAT_NAV
+                    c.alignment = lft_aln
+                    data_row_i  = 0
+                # 資料行
+                wr = ws_stat.max_row + 1
+                ws_stat.row_dimensions[wr].height = 20
+                row_fill = STAT_BLUE if data_row_i % 2 == 0 else STAT_ALT
+                for col_i, v in enumerate([None, item, val], 1):
+                    c = ws_stat[f"{get_column_letter(col_i)}{wr}"]
+                    c.value = v
+                    c.fill  = row_fill
+                    c.font  = (bold_nv if col_i == 2 else norm_font)
+                    c.alignment = ctr_aln if col_i == 3 else lft_aln
+                    c.border    = thin_border
+                data_row_i += 1
+        else:
+            # 舊版兩欄結構（兼容）
+            for r_i, srow in enumerate(stats_df.itertuples(index=False), start=1):
+                wr = ws_stat.max_row + 1
+                ws_stat.row_dimensions[wr].height = 20
+                row_fill = STAT_BLUE if r_i % 2 == 0 else STAT_ALT
+                for col_i, v in enumerate([srow[0], srow[1]], 1):
+                    c = ws_stat[f"{get_column_letter(col_i)}{wr}"]
+                    c.value = v; c.fill = row_fill
+                    c.font = norm_font; c.alignment = ctr_aln
+                    c.border = thin_border
 
         wb = writer.book
         # 格式化試題分析

@@ -439,24 +439,50 @@ def student_summary(df: pd.DataFrame, max_scores: pd.Series,
     n_absent  = len(absent_set & set(df2.index))
     n_present = n_total - n_absent
 
-    stats = pd.DataFrame({
-        "統計項目": [
-            "全班人數", "出席人數", "缺席人數", "滿分",
-            "平均分（出席）", "中位數（出席）", "標準差（出席）",
-            "最高分", "最低分",
-            f"及格率（≥{int(pass_rate*100)}%，出席）"
-        ],
-        "數值": [
-            n_total, n_present, n_absent, int(total_max),
-            round(df_active[score_col_name].mean(), 1)  if n_present > 0 else "-",
-            df_active[score_col_name].median()           if n_present > 0 else "-",
-            round(df_active[score_col_name].std(), 2)    if n_present > 0 else "-",
-            df_active[score_col_name].max()              if n_present > 0 else "-",
-            df_active[score_col_name].min()              if n_present > 0 else "-",
-            f"{(df_active[score_col_name] >= total_max * pass_rate).mean()*100:.1f}%"
-            if n_present > 0 else "-"
+    def _calc_stats(scores_series, s_max, label_prefix=""):
+        """計算一組分數的統計指標列表"""
+        act = scores_series[~scores_series.index.isin(absent_set)] if absent_set else scores_series
+        n_act = len(act)
+        pass_threshold = s_max * pass_rate
+        rows = [
+            (f"{label_prefix}滿分",                int(s_max)),
+            (f"{label_prefix}平均分（出席）",       round(act.mean(), 1)                         if n_act > 0 else "-"),
+            (f"{label_prefix}中位數（出席）",       round(float(act.median()), 1)                if n_act > 0 else "-"),
+            (f"{label_prefix}標準差（出席）",       round(act.std(), 2)                          if n_act > 0 else "-"),
+            (f"{label_prefix}最高分",               act.max()                                    if n_act > 0 else "-"),
+            (f"{label_prefix}最低分",               act.min()                                    if n_act > 0 else "-"),
+            (f"{label_prefix}及格率（≥{int(pass_rate*100)}%，出席）",
+             f"{(act >= pass_threshold).mean()*100:.1f}%"                                        if n_act > 0 else "-"),
         ]
-    })
+        return rows
+
+    stat_rows = [
+        ("區塊",    "統計項目",                "數值"),  # 標頭（不加入 DataFrame）
+    ]
+
+    # ── 整體統計 ──
+    overall_rows = [
+        ("整體",  "全班人數",                  n_total),
+        ("整體",  "出席人數",                  n_present),
+        ("整體",  "缺席人數",                  n_absent),
+    ]
+    for item, val in _calc_stats(df_active[score_col_name], total_max, ""):
+        overall_rows.append(("整體", item, val))
+
+    # ── 各卷分拆統計（多試卷才顯示）──
+    paper_rows = []
+    if num_papers > 1 and paper_weights and paper_pct is not None:
+        for p in sorted(paper_weights.keys()):
+            p_max_pct = paper_weights[p] * 100   # 該卷佔總分百分比（加權滿分）
+            if p in paper_pct.columns:
+                p_scores = paper_pct[p].reindex(df.index)  # 各生該卷得分率(%)
+                p_raw_scores = p_scores * p_max_pct / 100  # 轉為加權後分數
+                for item, val in _calc_stats(p_raw_scores, p_max_pct, ""):
+                    paper_rows.append((p, item, val))
+
+    # ── 組合成 DataFrame（三欄：區塊、統計項目、數值）──
+    all_rows = overall_rows + paper_rows
+    stats = pd.DataFrame(all_rows, columns=["區塊", "統計項目", "數值"])
     return summary, stats
 
 
