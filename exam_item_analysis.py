@@ -4,12 +4,50 @@
 
 import os
 import sys
+import io
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from scipy import stats as scipy_stats
+
+# ── matplotlib 中文字型設定 ──
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib import font_manager, rcParams
+
+def _setup_cjk_font():
+    """動態偵測中文字型（Linux Streamlit Cloud / macOS / Windows）"""
+    candidates = [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJKtc-Regular.otf",
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/STHeiti Light.ttc",
+        "/Library/Fonts/Arial Unicode.ttf",
+        "C:/Windows/Fonts/msjh.ttc",
+        "C:/Windows/Fonts/mingliu.ttc",
+        "C:/Windows/Fonts/simsun.ttc",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                font_manager.fontManager.addfont(path)
+                prop = font_manager.FontProperties(fname=path)
+                name = prop.get_name()
+                rcParams["font.family"]     = "sans-serif"
+                rcParams["font.sans-serif"] = [name] + rcParams.get("font.sans-serif", [])
+                rcParams["axes.unicode_minus"] = False
+                return name
+            except Exception:
+                continue
+    rcParams["axes.unicode_minus"] = False
+    return "DejaVu Sans"
+
+_CJK_FONT = _setup_cjk_font()
 
 TOP_BOTTOM_PCT = 0.27
 
@@ -451,9 +489,6 @@ def create_charts(df, max_scores, item_df, student_df, exam_title,
     chart_dir: 儲存到資料夾（None 則不寫檔）
     return_bytes: True 則回傳 dict {檔名: PNG bytes}
     """
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
     import matplotlib.colors as mcolors
     from matplotlib.patches import FancyBboxPatch
     import matplotlib.ticker as mticker

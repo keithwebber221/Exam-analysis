@@ -458,8 +458,9 @@ if page == "📋 試卷分析":
                         else:
                             st.warning("⚠️ 圖表生成為空，請確認 requirements.txt 已正確安裝")
                     except Exception as _ce:
+                        import traceback as _tb
                         st.error(f"❌ 圖表生成失敗：{_ce}")
-                        st.info("請確認 requirements.txt 已正確安裝並重新部署")
+                        st.code(_tb.format_exc())
                         charts_png = {}
 
                 charts_zip_buf = io.BytesIO()
