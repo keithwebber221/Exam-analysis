@@ -344,7 +344,14 @@ def item_analysis(df: pd.DataFrame, max_scores: pd.Series,
     results = []
     skipped = []
     for q in df_active.columns:
-        max_s = max_scores.get(q, np.nan) if hasattr(max_scores, 'get') else max_scores[q]
+        raw_s = max_scores.get(q, np.nan) if hasattr(max_scores, 'get') else max_scores[q]
+        # 若 raw_s 是 Series（重複欄名），取第一個值
+        if isinstance(raw_s, pd.Series):
+            raw_s = raw_s.iloc[0]
+        try:
+            max_s = float(raw_s)
+        except (TypeError, ValueError):
+            max_s = np.nan
         # 跳過滿分為 NaN 或 0 的題目
         if pd.isna(max_s) or max_s <= 0:
             skipped.append(q)

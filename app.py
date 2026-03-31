@@ -332,10 +332,34 @@ def load_data_from_bytes(file_bytes: bytes):
                 absent_set.add(str(row["中文姓名"]).strip())
 
     info_cols     = ["班別","班號","英文姓名","中文姓名"] + absent_col_candidates
-    question_cols = [c for c in col_names
-                     if isinstance(c,str) and c.strip()!="" and c not in info_cols]
-    max_scores = pd.Series(max_row, index=col_names)[question_cols].astype(float)
-    score_data = student_raw[question_cols].astype(float)
+    # 去除重複欄名（保留第一次出現），避免 Series 索引返回 DataFrame
+    seen_cols = set(); unique_question_cols = []
+    for c in col_names:
+        if isinstance(c,str) and c.strip()!="" and c not in info_cols:
+            if c not in seen_cols:
+                unique_question_cols.append(c)
+                seen_cols.add(c)
+    question_cols = unique_question_cols
+
+    # 建立不重複索引的 max_scores Series
+    _max_series = pd.Series(max_row, index=col_names)
+    max_scores = pd.Series(
+        {q: float(_max_series[q].iloc[0] if isinstance(_max_series[q], pd.Series)
+                  else _max_series[q])
+         for q in question_cols}
+    )
+    # 過濾掉非數字滿分（如欄名誤入說明文字）
+    max_scores = max_scores[pd.to_numeric(max_scores, errors="coerce").notna()]
+    question_cols = max_scores.index.tolist()
+
+    # 只保留 question_cols 中的欄，若 DataFrame 有重複欄取第一個
+    _sd_cols = []
+    for q in question_cols:
+        col_data = student_raw[q]
+        if isinstance(col_data, pd.DataFrame):
+            col_data = col_data.iloc[:, 0]
+        _sd_cols.append(col_data.rename(q))
+    score_data = pd.concat(_sd_cols, axis=1).astype(float)
     score_data.index = student_raw["中文姓名"].values
     score_data.index.name = "姓名"
     score_data.fillna(0, inplace=True)
@@ -351,7 +375,9 @@ def load_data_from_bytes(file_bytes: bytes):
     if has_paper_row:
         paper_series = pd.Series(paper_row, index=col_names)
         for q in question_cols:
-            val = str(paper_series.get(q,"P1")).strip()
+            raw_v = paper_series.get(q,"P1")
+            if isinstance(raw_v, pd.Series): raw_v = raw_v.iloc[0]
+            val = str(raw_v).strip()
             paper_map[q] = val if val in paper_labels else "P1"
     else:
         paper_map = {q:"P1" for q in question_cols}
