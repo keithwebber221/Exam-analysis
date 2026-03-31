@@ -331,35 +331,71 @@ def load_data_from_bytes(file_bytes: bytes):
             if pd.notna(val) and str(val).strip() not in ["","0","nan"]:
                 absent_set.add(str(row["中文姓名"]).strip())
 
-    info_cols     = ["班別","班號","英文姓名","中文姓名"] + absent_col_candidates
-    # 去除重複欄名（保留第一次出現），避免 Series 索引返回 DataFrame
-    seen_cols = set(); unique_question_cols = []
-    for c in col_names:
-        if isinstance(c,str) and c.strip()!="" and c not in info_cols:
-            if c not in seen_cols:
-                unique_question_cols.append(c)
-                seen_cols.add(c)
-    question_cols = unique_question_cols
+    info_cols = ["班別","班號","英文姓名","中文姓名"] + absent_col_candidates
 
-    # 建立不重複索引的 max_scores Series
-    _max_series = pd.Series(max_row, index=col_names)
-    max_scores = pd.Series(
-        {q: float(_max_series[q].iloc[0] if isinstance(_max_series[q], pd.Series)
-                  else _max_series[q])
-         for q in question_cols}
-    )
-    # 過濾掉非數字滿分（如欄名誤入說明文字）
-    max_scores = max_scores[pd.to_numeric(max_scores, errors="coerce").notna()]
-    question_cols = max_scores.index.tolist()
+    # ── 逐欄讀取（保留所有欄，含重複題號）──
+    # 每欄記錄：(原始欄名, Excel欄索引, paper標示, 滿分, 學生分數Series)
+    raw_q_list = []  # [(orig_name, col_idx, paper_label, max_val, score_series)]
+    for col_idx, c in enumerate(col_names):
+        if not (isinstance(c, str) and c.strip() != "" and c not in info_cols):
+            continue
+        # 取滿分
+        mv = max_row[col_idx] if col_idx < len(max_row) else np.nan
+        if isinstance(mv, pd.Series): mv = mv.iloc[0]
+        try:
+            mv = float(mv)
+        except (TypeError, ValueError):
+            mv = np.nan
+        if pd.isna(mv) or mv <= 0:
+            continue  # 跳過無效滿分欄
 
-    # 只保留 question_cols 中的欄，若 DataFrame 有重複欄取第一個
-    _sd_cols = []
-    for q in question_cols:
-        col_data = student_raw[q]
-        if isinstance(col_data, pd.DataFrame):
-            col_data = col_data.iloc[:, 0]
-        _sd_cols.append(col_data.rename(q))
-    score_data = pd.concat(_sd_cols, axis=1).astype(float)
+        # 取試卷標示
+        if has_paper_row and col_idx < len(paper_row):
+            pv = paper_row[col_idx]
+            if isinstance(pv, pd.Series): pv = pv.iloc[0]
+            paper_label = str(pv).strip() if str(pv).strip() in paper_labels else "P1"
+        else:
+            paper_label = "P1"
+
+        # 取學生分數（用 iloc 按位置，避免重複欄名問題）
+        score_series = student_raw.iloc[:, col_idx]
+        raw_q_list.append((c, col_idx, paper_label, mv, score_series))
+
+    # ── 偵測跨 Paper 重複題號，自動加前綴 ──
+    from collections import Counter
+    name_count = Counter(orig for orig, _, _, _, _ in raw_q_list)
+    # 若同一題號在不同 paper 都有出現，加 "P1_" / "P2_" 前綴
+    # 若同一題號在同一 paper 重複，加 "_2","_3" 後綴
+    paper_name_seen = {}  # {(paper, orig_name): count}
+    final_q_list = []    # [(final_name, paper_label, max_val, score_series)]
+    need_prefix  = {orig for orig, cnt in name_count.items() if cnt > 1}
+
+    for orig, col_idx, paper_label, mv, score_series in raw_q_list:
+        if orig in need_prefix:
+            base = f"{paper_label}_{orig}"
+        else:
+            base = orig
+        # 處理同 paper 內仍重複的情況
+        key = (paper_label, base)
+        if key in paper_name_seen:
+            paper_name_seen[key] += 1
+            final_name = f"{base}_{paper_name_seen[key]}"
+        else:
+            paper_name_seen[key] = 1
+            final_name = base
+        final_q_list.append((final_name, paper_label, mv, score_series))
+
+    # ── 建立 question_cols, max_scores, score_data, paper_map ──
+    question_cols = [fn for fn, _, _, _ in final_q_list]
+    max_scores    = pd.Series({fn: mv   for fn, _, mv, _  in final_q_list})
+    paper_map     = {fn: pl             for fn, pl, _, _  in final_q_list}
+
+    _sd_cols = [sc.rename(fn) for fn, _, _, sc in final_q_list]
+    score_data = pd.concat(_sd_cols, axis=1)
+    try:
+        score_data = score_data.astype(float)
+    except Exception:
+        score_data = score_data.apply(pd.to_numeric, errors="coerce")
     score_data.index = student_raw["中文姓名"].values
     score_data.index.name = "姓名"
     score_data.fillna(0, inplace=True)
@@ -370,17 +406,6 @@ def load_data_from_bytes(file_bytes: bytes):
     ci["班號"]    = student_raw.iloc[:,1].values
     ci["中文姓名"] = student_raw["中文姓名"].values
     ci = ci[ci["中文姓名"].notna()].reset_index(drop=True)
-
-    paper_map = {}
-    if has_paper_row:
-        paper_series = pd.Series(paper_row, index=col_names)
-        for q in question_cols:
-            raw_v = paper_series.get(q,"P1")
-            if isinstance(raw_v, pd.Series): raw_v = raw_v.iloc[0]
-            val = str(raw_v).strip()
-            paper_map[q] = val if val in paper_labels else "P1"
-    else:
-        paper_map = {q:"P1" for q in question_cols}
 
     return score_data, max_scores, absent_set, paper_map, ci
 
