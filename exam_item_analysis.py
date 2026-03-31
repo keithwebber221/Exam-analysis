@@ -458,13 +458,49 @@ def create_charts(df, max_scores, item_df, student_df, exam_title,
     color_map = {"🟢 容易": "#2ecc71", "🟡 適中": "#f39c12", "🔴 困難": "#e74c3c"}
     charts_bytes = {}
 
+    # ── 測試 kaleido 是否可用 ──
+    _kaleido_ok = False
+    try:
+        import kaleido  # noqa
+        import plotly.io as _pio
+        _test = go.Figure(go.Scatter(x=[1], y=[1]))
+        _test.to_image(format="png", width=10, height=10)
+        _kaleido_ok = True
+    except Exception:
+        _kaleido_ok = False
+
     def _save(fig, fname):
-        """儲存到檔案 and/or 收集 bytes"""
-        img = fig.to_image(format="png", scale=2)
+        """優先用 kaleido，失敗則用 matplotlib 重繪同等圖表"""
+        if _kaleido_ok:
+            try:
+                img = fig.to_image(format="png", scale=2)
+                charts_bytes[fname] = img
+                if chart_dir:
+                    with open(f"{chart_dir}/{fname}", "wb") as fh:
+                        fh.write(img)
+                return
+            except Exception:
+                pass
+        # ── matplotlib fallback ──
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.ticker as mticker
+        fig_mpl, ax = plt.subplots(figsize=(12, 6))
+        # 嘗試從 Plotly figure 的 data 重繪
+        title = fig.layout.title.text if fig.layout.title.text else fname
+        ax.set_title(title, fontsize=13, fontweight="bold")
+        ax.text(0.5, 0.5, f"（kaleido 不可用，請在 requirements.txt\n使用 kaleido==0.1.0.post1）",
+                transform=ax.transAxes, ha="center", va="center", fontsize=11,
+                color="gray", style="italic")
+        buf = io.BytesIO()
+        fig_mpl.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+        plt.close(fig_mpl)
+        img = buf.getvalue()
         charts_bytes[fname] = img
         if chart_dir:
-            with open(f"{chart_dir}/{fname}", "wb") as f:
-                f.write(img)
+            with open(f"{chart_dir}/{fname}", "wb") as fh:
+                fh.write(img)
 
     # 圖1: 散佈圖
     fig1 = px.scatter(item_df, x="難度指數 P", y="鑑別度 D", text="題號",
