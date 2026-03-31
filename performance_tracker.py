@@ -177,7 +177,12 @@ def read_student_scores(filepath):
                 df["百分比(%)"].astype(str).str.replace("%", "", regex=False),
                 errors="coerce"
             )
-            result = df[[name_col, "總分", "百分比(%)", "排名"]].dropna(subset=[name_col])
+            cols = [name_col, "總分", "百分比(%)", "排名"]
+            # 同時讀取班別/班號（如存在）
+            for extra in ["班別", "班號"]:
+                if extra in df.columns:
+                    cols.append(extra)
+            result = df[cols].dropna(subset=[name_col])
             result = result.rename(columns={name_col: "姓名"})
             return result
         else:
@@ -205,9 +210,10 @@ def build_tracking_matrix(exam_files, class_info_df=None):
         print("❌ 未找到任何 *_analysis.xlsx 檔案")
         return None, None, [], None
 
-    # 收集所有學生和考試
+    # 收集所有學生、考試和班別班號
     all_students = set()
-    exam_data = {}   # key: "YYYY_TYPE"  val: {姓名: (百分比, 排名)}
+    exam_data    = {}   # key: "YYYY_TYPE"  val: {姓名: (百分比, 排名)}
+    class_from_excel = {}  # 從 analysis.xlsx 收集的班別班號 {姓名: (班別, 班號)}
 
     for ef in exam_files:
         label = f"{ef['year']}_{ef['type']}"
@@ -217,6 +223,14 @@ def build_tracking_matrix(exam_files, class_info_df=None):
                 zip(df['姓名'], zip(df['百分比(%)'], df['排名']))
             )
             all_students.update(df['姓名'].tolist())
+            # 收集班別/班號（每次考試都更新，以最新為準）
+            if '班別' in df.columns and '班號' in df.columns:
+                for _, row in df.iterrows():
+                    name = row['姓名']
+                    ban  = str(row.get('班別', '')).strip()
+                    num  = str(row.get('班號', '')).strip()
+                    if ban or num:
+                        class_from_excel[name] = (ban, num)
             print(f"  ✅ 讀取 {os.path.basename(ef['file'])}：{len(df)} 位學生")
 
     if not exam_data:
@@ -243,17 +257,20 @@ def build_tracking_matrix(exam_files, class_info_df=None):
     pct_matrix  = pd.DataFrame(pct_data,  index=all_students)
     rank_matrix = pd.DataFrame(rank_data, index=all_students)
 
-    # 加入班別班號資訊
+    # 合併班別班號：優先 scores.xlsx > analysis.xlsx 欄位
+    merged_class = dict(class_from_excel)   # 先用 analysis.xlsx 的資料
     if class_info_df is not None:
-        info_dict = {}
         for _, row in class_info_df.iterrows():
-            info_dict[row['中文姓名']] = (row.get('班別',''), row.get('班號',''))
-        student_info = pd.DataFrame(
-            [(s, *info_dict.get(s, ('','')) ) for s in all_students],
-            columns=['中文姓名', '班別', '班號']
-        )
-    else:
-        student_info = pd.DataFrame({'中文姓名': all_students, '班別': '', '班號': ''})
+            name = row['中文姓名']
+            ban  = str(row.get('班別', '')).strip()
+            num  = str(row.get('班號', '')).strip()
+            if ban or num:
+                merged_class[name] = (ban, num)  # scores.xlsx 優先覆蓋
+
+    student_info = pd.DataFrame(
+        [(s, *merged_class.get(s, ('', ''))) for s in all_students],
+        columns=['中文姓名', '班別', '班號']
+    )
 
     # 按班別（字串升序）→ 班號（數字升序）排序
     def _ban_num(x):
