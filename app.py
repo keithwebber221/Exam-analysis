@@ -162,10 +162,53 @@ def export_excel_bytes(item_df, group_df, student_df, stats_df, exam_title):
     return buf.read()
 
 
+def _docx_bytes_to_pdf_bytes(docx_bytes: bytes) -> bytes | None:
+    """用 LibreOffice 將 docx bytes 轉為 PDF bytes（需 packages.txt: libreoffice）"""
+    import subprocess, tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        docx_path = os.path.join(tmpdir, "report.docx")
+        pdf_path  = os.path.join(tmpdir, "report.pdf")
+        with open(docx_path, "wb") as f:
+            f.write(docx_bytes)
+        for lo_cmd in ["libreoffice", "libreoffice7.6", "libreoffice7.5",
+                       "/usr/bin/libreoffice", "/usr/lib/libreoffice/program/soffice"]:
+            try:
+                result = subprocess.run(
+                    [lo_cmd, "--headless", "--convert-to", "pdf",
+                     "--outdir", tmpdir, docx_path],
+                    capture_output=True, timeout=60
+                )
+                if os.path.exists(pdf_path):
+                    with open(pdf_path, "rb") as f:
+                        return f.read()
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+    return None
+
+
+def _merge_pdf_bytes(pdf_bytes_list: list) -> bytes:
+    """合併多個 PDF bytes 為一個 PDF"""
+    from pypdf import PdfWriter
+    writer = PdfWriter()
+    for pdf_bytes in pdf_bytes_list:
+        buf = io.BytesIO(pdf_bytes)
+        from pypdf import PdfReader
+        reader = PdfReader(buf)
+        for page in reader.pages:
+            writer.add_page(page)
+    out = io.BytesIO()
+    writer.write(out)
+    out.seek(0)
+    return out.read()
+
+
 def generate_reports_zip(df, max_scores, item_df, exam_info, class_info,
-                          pass_rate, absent_set):
-    """生成個人報告 ZIP（BytesIO）"""
-    buf = io.BytesIO()
+                          pass_rate, absent_set, gen_pdf=True):
+    """
+    生成個人報告 ZIP（BytesIO）
+    回傳：(docx_zip_bytes, pdf_zip_bytes, merged_pdf_bytes)
+    pdf_zip_bytes / merged_pdf_bytes 在 LibreOffice 不可用時為 None
+    """
     total_scores = df.sum(axis=1)
     total_max    = int(max_scores.sum())
     class_avg    = item_df["平均分"].sum()
@@ -177,48 +220,74 @@ def generate_reports_zip(df, max_scores, item_df, exam_info, class_info,
             zip(class_info["班別"].astype(str), class_info["班號"].astype(str))
         ))
 
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for student_name in df.index:
-            student_score = total_scores[student_name]
-            class_code, class_num = class_info_dict.get(student_name, ("", "00"))
-            try:
-                class_num_int = int(float(class_num))
-            except:
-                class_num_int = 0
+    docx_entries = []   # [(fname_base, docx_bytes), ...]
+    pdf_entries  = []   # [(fname_base, pdf_bytes), ...]
 
-            if student_name in absent_set:
-                from docx import Document
-                from docx.shared import Pt, Inches
-                from docx.enum.text import WD_ALIGN_PARAGRAPH
-                from docx.oxml.ns import qn
-                from docx.oxml import OxmlElement
-                from docx.shared import RGBColor
-                doc = Document()
-                sec = doc.sections[0]
-                sec.top_margin = sec.bottom_margin = Inches(1.0)
-                sec.left_margin = sec.right_margin = Inches(1.2)
-                for _ in range(3): doc.add_paragraph()
-                p = doc.add_paragraph()
-                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                r = p.add_run("本次缺席")
-                r.font.size = Pt(36); r.font.bold = True
-                r.font.color.rgb = RGBColor(0xC0,0x39,0x2B)
-            else:
-                doc = ir.create_personal_report_v2_4(
-                    student_name, student_score, total_max,
-                    df.loc[student_name], max_scores, item_df,
-                    exam_info, class_avg, total_max,
-                    class_info, pass_rate
-                )
+    for student_name in df.index:
+        student_score = total_scores[student_name]
+        class_code, class_num = class_info_dict.get(student_name, ("", "00"))
+        try:
+            class_num_int = int(float(class_num))
+        except:
+            class_num_int = 0
 
-            fname = f"{class_code}{class_num_int:02d}{student_name}_個人報告.docx"
-            doc_buf = io.BytesIO()
-            doc.save(doc_buf)
-            doc_buf.seek(0)
-            zf.writestr(fname, doc_buf.read())
+        if student_name in absent_set:
+            from docx import Document
+            from docx.shared import Pt, Inches
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+            from docx.shared import RGBColor
+            doc = Document()
+            sec = doc.sections[0]
+            sec.top_margin = sec.bottom_margin = Inches(1.0)
+            sec.left_margin = sec.right_margin = Inches(1.2)
+            for _ in range(3): doc.add_paragraph()
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            r = p.add_run("本次缺席")
+            r.font.size = Pt(36); r.font.bold = True
+            r.font.color.rgb = RGBColor(0xC0, 0x39, 0x2B)
+        else:
+            doc = ir.create_personal_report_v2_4(
+                student_name, student_score, total_max,
+                df.loc[student_name], max_scores, item_df,
+                exam_info, class_avg, total_max,
+                class_info, pass_rate
+            )
 
-    buf.seek(0)
-    return buf.read()
+        fname_base = f"{class_code}{class_num_int:02d}{student_name}_個人報告"
+        doc_buf = io.BytesIO()
+        doc.save(doc_buf)
+        docx_bytes = doc_buf.getvalue()
+        docx_entries.append((fname_base, docx_bytes))
+
+        if gen_pdf:
+            pdf_bytes = _docx_bytes_to_pdf_bytes(docx_bytes)
+            if pdf_bytes:
+                pdf_entries.append((fname_base, pdf_bytes))
+
+    # 打包 Word ZIP
+    docx_buf = io.BytesIO()
+    with zipfile.ZipFile(docx_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname_base, docx_bytes in docx_entries:
+            zf.writestr(f"{fname_base}.docx", docx_bytes)
+    docx_buf.seek(0)
+    docx_zip = docx_buf.read()
+
+    # 打包 PDF ZIP + 合併 PDF
+    pdf_zip = merged_pdf = None
+    if pdf_entries:
+        pdf_buf = io.BytesIO()
+        with zipfile.ZipFile(pdf_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for fname_base, pdf_bytes in pdf_entries:
+                zf.writestr(f"{fname_base}.pdf", pdf_bytes)
+        pdf_buf.seek(0)
+        pdf_zip = pdf_buf.read()
+        try:
+            merged_pdf = _merge_pdf_bytes([pb for _, pb in pdf_entries])
+        except Exception:
+            merged_pdf = None
+
+    return docx_zip, pdf_zip, merged_pdf
 
 
 # ══════════════════════════════════════════════════════════════
@@ -371,6 +440,8 @@ if page == "📋 試卷分析":
                 import plotly.express as px
                 import plotly.graph_objects as go
 
+                charts_for_download = {}  # {名稱: fig}
+
                 c1, c2 = st.columns(2)
                 with c1:
                     item_plot = item_df.copy()
@@ -384,6 +455,7 @@ if page == "📋 試卷分析":
                     fig1.add_vline(x=0.25, line_dash="dash", line_color="gray")
                     fig1.add_vline(x=0.75, line_dash="dash", line_color="gray")
                     st.plotly_chart(fig1, use_container_width=True)
+                    charts_for_download["難度鑑別度分佈"] = fig1
 
                 with c2:
                     item_sorted = item_plot.sort_values("得分率 %")
@@ -394,6 +466,7 @@ if page == "📋 試卷分析":
                     fig2.update_traces(texttemplate="%{text}%", textposition="outside")
                     fig2.add_vline(x=50, line_dash="dash", line_color="gray")
                     st.plotly_chart(fig2, use_container_width=True)
+                    charts_for_download["各題得分率排行"] = fig2
 
                 # 總分分佈
                 scores_num = pd.to_numeric(student_df.get(
@@ -405,6 +478,26 @@ if page == "📋 試卷分析":
                     fig3.add_vline(x=scores_num.mean(), line_dash="dash",
                                    annotation_text=f"平均 {scores_num.mean():.1f}")
                     st.plotly_chart(fig3, use_container_width=True)
+                    charts_for_download["全班總分分佈"] = fig3
+
+                # ── 圖表下載（打包為 ZIP）──
+                try:
+                    import plotly.io as pio
+                    charts_zip_buf = io.BytesIO()
+                    with zipfile.ZipFile(charts_zip_buf, "w", zipfile.ZIP_DEFLATED) as czf:
+                        for cname, cfig in charts_for_download.items():
+                            png_bytes = pio.to_image(cfig, format="png", width=1200, height=700, scale=2)
+                            czf.writestr(f"{cname}.png", png_bytes)
+                    charts_zip_buf.seek(0)
+                    st.download_button(
+                        "📥 下載全部圖表 ZIP（PNG）",
+                        data=charts_zip_buf.read(),
+                        file_name=f"{file_prefix}_圖表.zip",
+                        mime="application/zip",
+                        use_container_width=True
+                    )
+                except Exception:
+                    st.info("💡 安裝 kaleido 後可下載 PNG 圖表：pip install kaleido")
 
                 # ── 下載區 ──
                 st.markdown("### ⬇️ 下載報告")
@@ -421,18 +514,41 @@ if page == "📋 試卷分析":
                         use_container_width=True)
 
                 with dl2:
-                    with st.spinner("生成個人報告中..."):
-                        zip_bytes = generate_reports_zip(
+                    with st.spinner("生成個人報告中（含 PDF 轉換）..."):
+                        docx_zip, pdf_zip, merged_pdf = generate_reports_zip(
                             df, max_scores, item_df, exam_info,
-                            class_info, pass_rate, absent_set)
+                            class_info, pass_rate, absent_set, gen_pdf=True)
                     st.download_button(
-                        "📥 下載個人報告 ZIP",
-                        data=zip_bytes,
-                        file_name=f"{file_prefix}_個人報告.zip",
+                        "📥 個人報告 Word ZIP",
+                        data=docx_zip,
+                        file_name=f"{file_prefix}_個人報告_Word.zip",
                         mime="application/zip",
                         use_container_width=True)
 
                 with dl3:
+                    if pdf_zip:
+                        st.download_button(
+                            "📥 個人報告 PDF ZIP",
+                            data=pdf_zip,
+                            file_name=f"{file_prefix}_個人報告_PDF.zip",
+                            mime="application/zip",
+                            use_container_width=True)
+                    else:
+                        st.info("PDF 轉換需要 LibreOffice（見 packages.txt）")
+
+                # 第4行下載
+                dl4, dl5 = st.columns(2)
+                with dl4:
+                    if merged_pdf:
+                        st.download_button(
+                            "📥 合併個人報告 PDF（單一檔案）",
+                            data=merged_pdf,
+                            file_name=f"{file_prefix}_全班個人報告.pdf",
+                            mime="application/pdf",
+                            use_container_width=True)
+                    else:
+                        st.info("合併 PDF 需要 LibreOffice + pypdf")
+                with dl5:
                     st.download_button(
                         "📥 下載原始成績表",
                         data=raw_bytes,

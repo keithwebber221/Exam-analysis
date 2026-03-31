@@ -18,19 +18,43 @@ import matplotlib
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 from matplotlib import rcParams
+from matplotlib import font_manager
 import sys
 
-# 設定中文字體
-if sys.platform == "win32":
-    DEFAULT_FONT = "微軟雅黑"
-    rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei']
-elif sys.platform == "darwin":
-    DEFAULT_FONT = "PingFang TC"
-    rcParams['font.sans-serif'] = ['PingFang TC', 'Arial Unicode MS']
-else:
-    DEFAULT_FONT = "Noto Sans CJK TC"
-    rcParams['font.sans-serif'] = ['Noto Sans CJK TC', 'WenQuanYi']
+def _setup_cjk_font():
+    """動態偵測並設定中文字型（支援 macOS / Windows / Linux Streamlit Cloud）"""
+    candidates = [
+        # Linux / Streamlit Cloud（需 packages.txt: fonts-noto-cjk）
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJKtc-Regular.otf",
+        # macOS
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/STHeiti Light.ttc",
+        "/Library/Fonts/Arial Unicode.ttf",
+        # Windows
+        "C:/Windows/Fonts/msjh.ttc",
+        "C:/Windows/Fonts/mingliu.ttc",
+        "C:/Windows/Fonts/simsun.ttc",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                font_manager.fontManager.addfont(path)
+                prop = font_manager.FontProperties(fname=path)
+                name = prop.get_name()
+                rcParams['font.family']     = 'sans-serif'
+                rcParams['font.sans-serif'] = [name] + rcParams.get('font.sans-serif', [])
+                rcParams['axes.unicode_minus'] = False
+                return name
+            except Exception:
+                continue
+    rcParams['font.family']        = 'sans-serif'
+    rcParams['axes.unicode_minus'] = False
+    return 'DejaVu Sans'
 
+DEFAULT_FONT = _setup_cjk_font()
 rcParams['axes.unicode_minus'] = False
 
 
