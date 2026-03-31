@@ -499,7 +499,11 @@ def create_charts(df, max_scores, item_df, student_df, exam_title,
     item_df["得分率 %"] = (item_df["平均分"] / item_df["滿分"] * 100).round(1)
     charts_bytes = {}
 
-    COLOR = {"🟢 容易": "#2ecc71", "🟡 適中": "#f39c12", "🔴 困難": "#e74c3c"}
+    # 圖表用純文字（避免 matplotlib 無法渲染 emoji）
+    COLOR     = {"容易": "#2ecc71", "適中": "#f39c12", "困難": "#e74c3c"}
+    # emoji → 純文字 對照（item_df 的「難度評級」欄含 emoji，需轉換）
+    EMOJI_MAP = {"🟢 容易": "容易", "🟡 適中": "適中", "🔴 困難": "困難"}
+    item_df["難度評級_圖"] = item_df["難度評級"].map(EMOJI_MAP).fillna(item_df["難度評級"])
 
     def _fig_to_bytes(fig):
         buf = io.BytesIO()
@@ -521,7 +525,7 @@ def create_charts(df, max_scores, item_df, student_df, exam_title,
     fig1.patch.set_facecolor("#FAFAFA")
     ax1.set_facecolor("#F5F7FA")
     for label, color in COLOR.items():
-        sub = item_df[item_df["難度評級"] == label]
+        sub = item_df[item_df["難度評級_圖"] == label]
         if len(sub):
             ax1.scatter(sub["難度指數 P"], sub["鑑別度 D"],
                         c=color, label=label, s=120, zorder=4,
@@ -545,7 +549,7 @@ def create_charts(df, max_scores, item_df, student_df, exam_title,
 
     # ── 圖2：各題得分率橫條圖 ──
     item_sorted = item_df.sort_values("得分率 %")
-    bar_colors  = [COLOR.get(d, "#95a5a6") for d in item_sorted["難度評級"]]
+    bar_colors  = [COLOR.get(EMOJI_MAP.get(d, d), "#95a5a6") for d in item_sorted["難度評級"]]
     fig2, ax2   = plt.subplots(figsize=(11, max(5, len(item_sorted) * 0.38)))
     fig2.patch.set_facecolor("#FAFAFA")
     ax2.set_facecolor("#F5F7FA")
@@ -563,7 +567,7 @@ def create_charts(df, max_scores, item_df, student_df, exam_title,
     ax2.grid(axis="x", alpha=0.3)
     # 圖例：難度顏色
     from matplotlib.patches import Patch
-    legend_els = [Patch(facecolor=c, label=l) for l, c in COLOR.items()]
+    legend_els = [Patch(facecolor=c, label=f"◼ {l}") for l, c in COLOR.items()]
     ax2.legend(handles=legend_els + [
         plt.Line2D([0],[0], ls="--", c="gray", label="50% 基準")
     ], fontsize=9, loc="lower right")
