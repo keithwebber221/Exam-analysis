@@ -447,122 +447,159 @@ def question_group_analysis(df, max_scores, item_df):
 def create_charts(df, max_scores, item_df, student_df, exam_title,
                   chart_dir=None, absent_set=None, return_bytes=False):
     """
-    生成4張分析圖表。
+    用 matplotlib 生成4張分析圖表（無需 kaleido / Chrome）。
     chart_dir: 儲存到資料夾（None 則不寫檔）
     return_bytes: True 則回傳 dict {檔名: PNG bytes}
     """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+    from matplotlib.patches import FancyBboxPatch
+    import matplotlib.ticker as mticker
+
     absent_set = absent_set or set()
     df_plot    = df[~df.index.isin(absent_set)]
-    item_df = item_df.copy()
+    item_df    = item_df.copy()
     item_df["得分率 %"] = (item_df["平均分"] / item_df["滿分"] * 100).round(1)
-    color_map = {"🟢 容易": "#2ecc71", "🟡 適中": "#f39c12", "🔴 困難": "#e74c3c"}
     charts_bytes = {}
 
-    # ── 測試 kaleido 是否可用 ──
-    _kaleido_ok = False
-    try:
-        import kaleido  # noqa
-        import plotly.io as _pio
-        _test = go.Figure(go.Scatter(x=[1], y=[1]))
-        _test.to_image(format="png", width=10, height=10)
-        _kaleido_ok = True
-    except Exception:
-        _kaleido_ok = False
+    COLOR = {"🟢 容易": "#2ecc71", "🟡 適中": "#f39c12", "🔴 困難": "#e74c3c"}
 
-    def _save(fig, fname):
-        """優先用 kaleido，失敗則用 matplotlib 重繪同等圖表"""
-        if _kaleido_ok:
-            try:
-                img = fig.to_image(format="png", scale=2)
-                charts_bytes[fname] = img
-                if chart_dir:
-                    with open(f"{chart_dir}/{fname}", "wb") as fh:
-                        fh.write(img)
-                return
-            except Exception:
-                pass
-        # ── matplotlib fallback ──
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        import matplotlib.ticker as mticker
-        fig_mpl, ax = plt.subplots(figsize=(12, 6))
-        # 嘗試從 Plotly figure 的 data 重繪
-        title = fig.layout.title.text if fig.layout.title.text else fname
-        ax.set_title(title, fontsize=13, fontweight="bold")
-        ax.text(0.5, 0.5, f"（kaleido 不可用，請在 requirements.txt\n使用 kaleido==0.1.0.post1）",
-                transform=ax.transAxes, ha="center", va="center", fontsize=11,
-                color="gray", style="italic")
+    def _fig_to_bytes(fig):
         buf = io.BytesIO()
-        fig_mpl.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-        plt.close(fig_mpl)
-        img = buf.getvalue()
+        fig.savefig(buf, format="png", dpi=180, bbox_inches="tight",
+                    facecolor=fig.get_facecolor())
+        plt.close(fig)
+        return buf.getvalue()
+
+    def _save(fname, fig):
+        img = _fig_to_bytes(fig)
         charts_bytes[fname] = img
         if chart_dir:
+            os.makedirs(chart_dir, exist_ok=True)
             with open(f"{chart_dir}/{fname}", "wb") as fh:
                 fh.write(img)
 
-    # 圖1: 散佈圖
-    fig1 = px.scatter(item_df, x="難度指數 P", y="鑑別度 D", text="題號",
-                      color="難度評級", color_discrete_map=color_map,
-                      title=f"{exam_title}｜題目難度 vs 鑑別度", width=950, height=620)
-    fig1.add_hline(y=0.4, line_dash="dash", line_color="green",  annotation_text="D=0.4（優良）")
-    fig1.add_hline(y=0.2, line_dash="dash", line_color="orange", annotation_text="D=0.2（尚可）")
-    fig1.add_vline(x=0.25, line_dash="dot", line_color="red",    annotation_text="P=0.25（困難）")
-    fig1.add_vline(x=0.75, line_dash="dot", line_color="blue",   annotation_text="P=0.75（容易）")
-    fig1.update_traces(textposition="top center", marker_size=12)
-    _save(fig1, "01_difficulty_discrimination.png")
+    # ── 圖1：難度－鑑別度散點圖 ──
+    fig1, ax1 = plt.subplots(figsize=(11, 7))
+    fig1.patch.set_facecolor("#FAFAFA")
+    ax1.set_facecolor("#F5F7FA")
+    for label, color in COLOR.items():
+        sub = item_df[item_df["難度評級"] == label]
+        if len(sub):
+            ax1.scatter(sub["難度指數 P"], sub["鑑別度 D"],
+                        c=color, label=label, s=120, zorder=4,
+                        edgecolors="white", linewidths=0.8)
+            for _, r in sub.iterrows():
+                ax1.annotate(str(r["題號"]),
+                             (r["難度指數 P"], r["鑑別度 D"]),
+                             textcoords="offset points", xytext=(7, 4),
+                             fontsize=8, zorder=5)
+    ax1.axhline(0.4, ls="--", c="#27ae60", lw=1.2, label="D=0.4（優良）")
+    ax1.axhline(0.2, ls="--", c="#e67e22", lw=1.2, label="D=0.2（尚可）")
+    ax1.axvline(0.25, ls=":",  c="#e74c3c", lw=1.2, label="P=0.25（困難）")
+    ax1.axvline(0.75, ls=":",  c="#3498db", lw=1.2, label="P=0.75（容易）")
+    ax1.set_xlabel("難度指數 P", fontsize=12)
+    ax1.set_ylabel("鑑別度 D",   fontsize=12)
+    ax1.set_title(f"{exam_title}｜題目難度 vs 鑑別度", fontsize=14, fontweight="bold", pad=12)
+    ax1.legend(fontsize=9, loc="upper left", framealpha=0.8)
+    ax1.grid(True, alpha=0.3)
+    ax1.set_xlim(-0.05, 1.05); ax1.set_ylim(-0.15, 1.05)
+    _save("01_difficulty_discrimination.png", fig1)
 
-    # 圖2: 得分率橫條圖
+    # ── 圖2：各題得分率橫條圖 ──
     item_sorted = item_df.sort_values("得分率 %")
-    fig2 = px.bar(item_sorted, x="得分率 %", y="題號", orientation="h",
-                  color="難度評級", color_discrete_map=color_map,
-                  title=f"{exam_title}｜各題得分率排行", text="得分率 %", width=950, height=520)
-    fig2.update_traces(texttemplate="%{text}%", textposition="outside")
-    fig2.add_vline(x=50, line_dash="dash", line_color="gray", annotation_text="50% 基準")
-    _save(fig2, "02_score_rate_by_question.png")
+    bar_colors  = [COLOR.get(d, "#95a5a6") for d in item_sorted["難度評級"]]
+    fig2, ax2   = plt.subplots(figsize=(11, max(5, len(item_sorted) * 0.38)))
+    fig2.patch.set_facecolor("#FAFAFA")
+    ax2.set_facecolor("#F5F7FA")
+    bars = ax2.barh(item_sorted["題號"].astype(str),
+                    item_sorted["得分率 %"],
+                    color=bar_colors, edgecolor="white", linewidth=0.6, height=0.7)
+    for bar, val in zip(bars, item_sorted["得分率 %"]):
+        ax2.text(val + 0.8, bar.get_y() + bar.get_height() / 2,
+                 f"{val:.1f}%", va="center", fontsize=8, color="#333")
+    ax2.axvline(50, ls="--", c="gray", lw=1.2, label="50% 基準", alpha=0.8)
+    ax2.set_xlabel("得分率 %", fontsize=12)
+    ax2.set_title(f"{exam_title}｜各題得分率排行", fontsize=14, fontweight="bold", pad=12)
+    ax2.set_xlim(0, min(130, item_sorted["得分率 %"].max() + 18))
+    ax2.legend(fontsize=9)
+    ax2.grid(axis="x", alpha=0.3)
+    # 圖例：難度顏色
+    from matplotlib.patches import Patch
+    legend_els = [Patch(facecolor=c, label=l) for l, c in COLOR.items()]
+    ax2.legend(handles=legend_els + [
+        plt.Line2D([0],[0], ls="--", c="gray", label="50% 基準")
+    ], fontsize=9, loc="lower right")
+    _save("02_score_rate_by_question.png", fig2)
 
-    # 圖3: 分佈曲線（排除缺席學生，只取數值型記錄）
-    _score_col = "總分(加權)" if "總分(加權)" in student_df.columns else "總分"
-    scores_numeric = pd.to_numeric(student_df[_score_col], errors="coerce").dropna()
-    total_max  = 100 if _score_col == "總分(加權)" else int(max_scores.sum())
-    scores_arr = scores_numeric.values.astype(float)
-    total_max  = int(max_scores.sum())
-    mean_score = scores_arr.mean()
-    fig3 = go.Figure()
-    fig3.add_trace(go.Histogram(x=scores_arr, nbinsx=10, name="人數分佈",
-                                marker_color="#3498db", opacity=0.6))
-    if len(scores_arr) >= 2 and scores_arr.max() > scores_arr.min():
-        kde     = scipy_stats.gaussian_kde(scores_arr)
-        x_range = np.linspace(scores_arr.min(), scores_arr.max(), 200)
-        density = kde(x_range) * len(scores_arr) * (scores_arr.max() - scores_arr.min()) / 10
-        fig3.add_trace(go.Scatter(x=x_range, y=density, mode="lines", name="密度曲線",
-                                  line=dict(color="red", width=3)))
-    fig3.add_vline(x=mean_score, line_dash="dash", line_color="green", line_width=2,
-                   annotation_text=f"平均 {mean_score:.1f}")
-    fig3.update_layout(title=f"{exam_title}｜全班總分分佈",
-                       xaxis_title=f"總分（滿分 {total_max}）", yaxis_title="人數",
-                       width=850, height=480, showlegend=True)
-    _save(fig3, "03_student_score_distribution.png")
+    # ── 圖3：全班總分分佈 + KDE 曲線 ──
+    _score_col    = "總分(加權)" if "總分(加權)" in student_df.columns else "總分"
+    scores_num    = pd.to_numeric(student_df[_score_col], errors="coerce").dropna()
+    scores_arr    = scores_num.values.astype(float)
+    total_max_val = 100 if _score_col == "總分(加權)" else int(max_scores.sum())
+    fig3, ax3     = plt.subplots(figsize=(10, 5.5))
+    fig3.patch.set_facecolor("#FAFAFA")
+    ax3.set_facecolor("#F5F7FA")
+    if len(scores_arr) >= 2:
+        n, bins, patches = ax3.hist(scores_arr, bins=10,
+                                     color="#3498db", alpha=0.6,
+                                     edgecolor="white", linewidth=0.8,
+                                     label="人數分佈")
+        if scores_arr.max() > scores_arr.min():
+            x_range = np.linspace(scores_arr.min(), scores_arr.max(), 300)
+            kde      = scipy_stats.gaussian_kde(scores_arr)
+            density  = kde(x_range) * len(scores_arr) * (scores_arr.max()-scores_arr.min()) / 10
+            ax3.plot(x_range, density, color="#e74c3c", lw=2.5, label="密度曲線")
+        mean_v = scores_arr.mean()
+        ax3.axvline(mean_v, color="#27ae60", ls="--", lw=2,
+                    label=f"平均 {mean_v:.1f}")
+    ax3.set_xlabel(f"總分（滿分 {total_max_val}）", fontsize=12)
+    ax3.set_ylabel("人數", fontsize=12)
+    ax3.set_title(f"{exam_title}｜全班總分分佈", fontsize=14, fontweight="bold", pad=12)
+    ax3.legend(fontsize=10); ax3.grid(alpha=0.3)
+    _save("03_student_score_distribution.png", fig3)
 
-    # 圖4: 熱力圖（含數值，保持原始次序）
+    # ── 圖4：全班答題熱力圖 ──
     score_pct = df_plot.div(max_scores) * 100
-    fig4 = go.Figure(data=go.Heatmap(
-        z=score_pct.values, x=score_pct.columns, y=score_pct.index,
-        colorscale="RdYlGn", zmin=0, zmax=100,
-        text=score_pct.values.round(1), texttemplate="%{text:.1f}%", textfont={"size": 8},
-        colorbar=dict(title="得分率 %"),
-        hovertemplate="學生：%{y}<br>題目：%{x}<br>得分率：%{z:.1f}%<extra></extra>",
-    ))
-    fig4.update_layout(
-        title=f"{exam_title}｜全班答題熱力圖（得分率 %）",
-        xaxis_title="試題", yaxis_title="學生",
-        width=1200, height=650,
-        yaxis=dict(autorange="reversed"),
-    )
-    fig4.update_xaxes(tickangle=-45, tickfont=dict(size=10))
-    fig4.update_yaxes(tickfont=dict(size=9))
-    _save(fig4, "04_class_heatmap.png")
+    n_students, n_q = score_pct.shape
+    fig_w = max(12, n_q * 0.55)
+    fig_h = max(6,  n_students * 0.32)
+    fig4, ax4 = plt.subplots(figsize=(fig_w, fig_h))
+    fig4.patch.set_facecolor("#FAFAFA")
+
+    cmap = mcolors.LinearSegmentedColormap.from_list(
+        "RdYlGn", ["#e74c3c","#f39c12","#f1c40f","#2ecc71"], N=256)
+    im = ax4.imshow(score_pct.values, aspect="auto",
+                    cmap=cmap, vmin=0, vmax=100, interpolation="nearest")
+    cbar = fig4.colorbar(im, ax=ax4, shrink=0.8, pad=0.02)
+    cbar.set_label("得分率 %", fontsize=10)
+
+    # 數值標注（學生數≤40 才顯示，避免擁擠）
+    if n_students <= 40 and n_q <= 50:
+        fs = max(5, min(8, 200 // (n_students * n_q + 1)))
+        for i in range(n_students):
+            for j in range(n_q):
+                val = score_pct.values[i, j]
+                if not np.isnan(val):
+                    txt_color = "white" if val < 40 or val > 80 else "black"
+                    ax4.text(j, i, f"{val:.0f}", ha="center", va="center",
+                             fontsize=fs, color=txt_color)
+
+    ax4.set_xticks(range(n_q))
+    ax4.set_xticklabels(score_pct.columns.astype(str),
+                        rotation=-45, ha="right", fontsize=max(7, min(9, 220//n_q)))
+    ax4.set_yticks(range(n_students))
+    ax4.set_yticklabels(score_pct.index.astype(str),
+                        fontsize=max(6, min(9, 180//n_students)))
+    ax4.set_xlabel("試題", fontsize=12)
+    ax4.set_ylabel("學生", fontsize=12)
+    ax4.set_title(f"{exam_title}｜全班答題熱力圖（得分率 %）",
+                  fontsize=14, fontweight="bold", pad=12)
+    plt.tight_layout()
+    _save("04_class_heatmap.png", fig4)
+
     if chart_dir:
         print(f"   ✅ 4 張圖表已儲存至 {chart_dir}/")
     if return_bytes:

@@ -446,7 +446,7 @@ if page == "📋 試卷分析":
                     pd.Series()), errors="coerce").dropna()
 
                 # ── 用原版 create_charts 生成完全一致的圖表（含熱力圖）──
-                with st.spinner("生成圖表中（使用 kaleido==0.1.0.post1）..."):
+                with st.spinner("生成圖表中..."):
                     try:
                         charts_png = ea.create_charts(
                             df.copy(), max_scores, item_df.copy(), student_df.copy(),
@@ -456,10 +456,10 @@ if page == "📋 試卷分析":
                         if charts_png:
                             st.success(f"✅ 成功生成 {len(charts_png)} 張圖表")
                         else:
-                            st.warning("⚠️ 圖表生成為空，請確認 kaleido==0.1.0.post1 已安裝")
+                            st.warning("⚠️ 圖表生成為空，請確認 requirements.txt 已正確安裝")
                     except Exception as _ce:
                         st.error(f"❌ 圖表生成失敗：{_ce}")
-                        st.info("請確認 requirements.txt 中含 kaleido==0.1.0.post1 並重新部署")
+                        st.info("請確認 requirements.txt 已正確安裝並重新部署")
                         charts_png = {}
 
                 charts_zip_buf = io.BytesIO()
