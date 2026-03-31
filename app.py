@@ -437,6 +437,7 @@ def export_excel_bytes(item_df, group_df, student_df, stats_df, exam_title):
                                        student_df_sorted[absent_mask]])
         student_df_sorted.to_excel(writer, sheet_name="3_學生成績", index=True)
         # ── 4_全班統計：自訂格式（支援多區塊）──
+        wb = writer.book
         ws_stat = wb.create_sheet("4_全班統計")
         STAT_NAV  = PatternFill("solid", fgColor="1A3A6B")
         STAT_BLUE = PatternFill("solid", fgColor="D6E4F7")
