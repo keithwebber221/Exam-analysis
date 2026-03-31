@@ -825,6 +825,107 @@ def generate_tracking_report(pct_matrix, rank_matrix, student_info,
         print(f"⚠️  PDF 轉換失敗（Word 文件已儲存）：{e}")
         return docx_path, None
 
+def generate_tracking_report_bytes(pct_matrix, rank_matrix, student_info,
+                                    class_stats, exam_labels,
+                                    file_prefix, subject="", pass_rate=0.4):
+    """生成 Word 追蹤報告並回傳 (docx_bytes, pdf_bytes_or_None)"""
+    import io as _io, subprocess, tempfile, os as _os
+
+    doc = Document()
+    section = doc.sections[0]
+    section.page_height = Cm(29.7);  section.page_width  = Cm(21.0)
+    section.top_margin  = Cm(1.8);   section.bottom_margin = Cm(1.8)
+    section.left_margin = Cm(2.2);   section.right_margin = Cm(2.2)
+
+    # ── 封面 ──
+    for _ in range(3): doc.add_paragraph()
+    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _set_font(p.add_run("DSE 成績追蹤報告"), size=28, bold=True, color="1A3A6B")
+    p2 = doc.add_paragraph(); p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _set_font(p2.add_run(subject if subject else file_prefix), size=18, color="1F6FB8")
+    p3 = doc.add_paragraph(); p3.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _set_font(p3.add_run(f"涵蓋 {len(exam_labels)} 次考試 · {len(pct_matrix)} 位學生"),
+              size=13, color="606060")
+    doc.add_page_break()
+
+    # ── 全班趨勢圖 ──
+    p_hd = doc.add_paragraph()
+    _set_font(p_hd.add_run("全班成績趨勢"), size=16, bold=True, color="1A3A6B")
+    class_chart_buf = make_class_trend_chart(class_stats, pass_rate, subject)
+    doc.add_picture(class_chart_buf, width=Inches(6.5)); class_chart_buf.close()
+    doc.add_paragraph().paragraph_format.space_after = Pt(4)
+
+    # 全班統計表
+    tbl = doc.add_table(rows=1, cols=len(class_stats.columns)); tbl.style = "Table Grid"
+    for j, col_name in enumerate(class_stats.columns):
+        cell = tbl.cell(0, j); _shade_cell(cell, "1A3A6B")
+        p_ = cell.paragraphs[0]; p_.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _set_font(p_.add_run(col_name), size=9, bold=True, color="FFFFFF")
+    for _, row_data in class_stats.iterrows():
+        row = tbl.add_row()
+        for j, v in enumerate(row_data):
+            p_ = row.cells[j].paragraphs[0]; p_.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            _set_font(p_.add_run(str(v)), size=9)
+    doc.add_page_break()
+
+    # ── 個人成績追蹤 ──
+    p_hd2 = doc.add_paragraph()
+    _set_font(p_hd2.add_run("個人成績追蹤"), size=16, bold=True, color="1A3A6B")
+    doc.add_paragraph().paragraph_format.space_after = Pt(4)
+
+    students_list = pct_matrix.index.tolist()
+    for idx, student in enumerate(students_list, 1):
+        info = student_info[student_info["中文姓名"] == student]
+        ban  = info["班別"].values[0] if len(info) else ""
+        num  = info["班號"].values[0]  if len(info) else ""
+        p_name = doc.add_paragraph()
+        _set_font(p_name.add_run(f"  {idx:02d}  "), size=10, bold=True, color="FFFFFF")
+        _set_font(p_name.add_run(
+            f"  {ban}{int(num):02d} {student}" if str(num).isdigit() else f"  {student}"),
+            size=13, bold=True, color="1A3A6B")
+        chart_buf = make_student_trend_chart(
+            student, pct_matrix.loc[student], rank_matrix.loc[student], pass_rate)
+        if chart_buf:
+            doc.add_picture(chart_buf, width=Inches(6.2)); chart_buf.close()
+        t = calc_trend(pct_matrix.loc[student])
+        valid = pct_matrix.loc[student].dropna()
+        parts = []
+        if len(valid) > 0:      parts.append(f"出席：{t['attended']} 次")
+        if t["absent"] > 0:     parts.append(f"缺考：{t['absent']} 次")
+        if not np.isnan(t["avg"]):    parts.append(f"平均：{t['avg']}%")
+        if not np.isnan(t["change"]):
+            chg = f"+{t['change']}%" if t["change"] > 0 else f"{t['change']}%"
+            parts.append(f"變化：{chg}")
+        p_sum = doc.add_paragraph("  " + "　|　".join(parts))
+        p_sum.paragraph_format.space_after = Pt(8)
+        if idx % 3 == 0 and idx < len(students_list):
+            doc.add_page_break()
+
+    # 存為 bytes
+    docx_buf = _io.BytesIO(); doc.save(docx_buf)
+    docx_bytes = docx_buf.getvalue()
+
+    # 轉 PDF（LibreOffice）
+    pdf_bytes = None
+    with tempfile.TemporaryDirectory() as tmpdir:
+        docx_path = _os.path.join(tmpdir, "tracking.docx")
+        pdf_path  = _os.path.join(tmpdir, "tracking.pdf")
+        with open(docx_path, "wb") as f: f.write(docx_bytes)
+        for lo in ["libreoffice", "/usr/bin/libreoffice",
+                   "/usr/lib/libreoffice/program/soffice"]:
+            try:
+                subprocess.run([lo, "--headless", "--convert-to", "pdf",
+                                "--outdir", tmpdir, docx_path],
+                               capture_output=True, timeout=120)
+                if _os.path.exists(pdf_path):
+                    with open(pdf_path, "rb") as f: pdf_bytes = f.read()
+                    break
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+
+    return docx_bytes, pdf_bytes
+
+
 # ══════════════════════════════════════════════════════════════
 # 7. 主程式
 # ══════════════════════════════════════════════════════════════

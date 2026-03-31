@@ -725,21 +725,80 @@ elif page == "📈 成績追蹤":
                         with tab2:
                             st.dataframe(pct_matrix.round(1), use_container_width=True, height=400)
 
-                        # 下載 Excel
+                        # ── 生成全部報告 ──
                         st.markdown("### ⬇️ 下載追蹤報告")
+                        years    = sorted(set(ef["year"] for ef in filtered))
+                        fp_track = f"{'_'.join(years)}_{track_subject}"
+
+                        # Excel
+                        tracking_excel = None
                         try:
-                            excel_bytes = export_tracking_excel_bytes(
+                            tracking_excel = export_tracking_excel_bytes(
                                 pct_matrix, rank_matrix, student_info,
                                 class_stats, exam_labels,
                                 track_pass_rate, track_subject)
-                            years = sorted(set(ef["year"] for ef in filtered))
-                            out_name = f"{'_'.join(years)}_{track_subject}_成績追蹤.xlsx"
-                            st.download_button(
-                                "📥 下載成績追蹤 Excel",
-                                data=excel_bytes,
-                                file_name=out_name,
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                use_container_width=True)
                         except Exception as e:
                             st.error(f"❌ 生成 Excel 失敗：{e}")
                             import traceback; st.code(traceback.format_exc())
+
+                        # Word + PDF
+                        tracking_docx = tracking_pdf = None
+                        with st.spinner("生成 Word 追蹤報告（含個人趨勢圖）..."):
+                            try:
+                                tracking_docx, tracking_pdf = pt.generate_tracking_report_bytes(
+                                    pct_matrix, rank_matrix, student_info,
+                                    class_stats, exam_labels,
+                                    fp_track, track_subject, track_pass_rate)
+                            except Exception as e:
+                                st.warning(f"⚠️ Word 報告生成失敗：{e}")
+
+                        # 一鍵下載全部
+                        if tracking_excel or tracking_docx:
+                            all_track_buf = io.BytesIO()
+                            with zipfile.ZipFile(all_track_buf, "w", zipfile.ZIP_DEFLATED) as azf:
+                                if tracking_excel:
+                                    azf.writestr(f"{fp_track}_成績追蹤.xlsx", tracking_excel)
+                                if tracking_docx:
+                                    azf.writestr(f"{fp_track}_成績追蹤報告.docx", tracking_docx)
+                                if tracking_pdf:
+                                    azf.writestr(f"{fp_track}_成績追蹤報告.pdf", tracking_pdf)
+                            all_track_buf.seek(0)
+                            st.download_button(
+                                "📦 一鍵下載全部追蹤報告 ZIP",
+                                data=all_track_buf.read(),
+                                file_name=f"{fp_track}_追蹤報告全部.zip",
+                                mime="application/zip",
+                                use_container_width=True,
+                                type="primary")
+                            st.markdown("---")
+
+                        # 個別下載
+                        tdl1, tdl2, tdl3 = st.columns(3)
+                        with tdl1:
+                            if tracking_excel:
+                                st.download_button(
+                                    "📥 成績追蹤 Excel",
+                                    data=tracking_excel,
+                                    file_name=f"{fp_track}_成績追蹤.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    use_container_width=True)
+                        with tdl2:
+                            if tracking_docx:
+                                st.download_button(
+                                    "📥 追蹤報告 Word",
+                                    data=tracking_docx,
+                                    file_name=f"{fp_track}_成績追蹤報告.docx",
+                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    use_container_width=True)
+                            else:
+                                st.info("Word 報告生成失敗")
+                        with tdl3:
+                            if tracking_pdf:
+                                st.download_button(
+                                    "📥 追蹤報告 PDF",
+                                    data=tracking_pdf,
+                                    file_name=f"{fp_track}_成績追蹤報告.pdf",
+                                    mime="application/pdf",
+                                    use_container_width=True)
+                            else:
+                                st.info("PDF 需 LibreOffice（packages.txt）")
