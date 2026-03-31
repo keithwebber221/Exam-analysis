@@ -438,65 +438,31 @@ if page == "📋 試卷分析":
                         df, max_scores, item_df, exam_info,
                         class_info, pass_rate, absent_set, gen_pdf=True)
 
-                # 計算圖表資料
+                # 計算圖表資料（供 Plotly 互動顯示用）
                 item_plot = item_df.copy()
                 item_plot["得分率 %"] = (item_plot["平均分"] / item_plot["滿分"] * 100).round(1)
                 scores_num = pd.to_numeric(student_df.get(
                     "總分(加權)" if "總分(加權)" in student_df.columns else "總分",
                     pd.Series()), errors="coerce").dropna()
 
-                # 生成 PNG 圖表（用 matplotlib，不依賴 kaleido）
-                import matplotlib
-                matplotlib.use("Agg")
-                import matplotlib.pyplot as plt
-                charts_png = {}
-                color_map_mpl = {"🟢 容易":"#2ecc71","🟡 適中":"#f39c12","🔴 困難":"#e74c3c"}
-
-                # 圖1：難度-鑑別度散點
-                fig_a, ax_a = plt.subplots(figsize=(8,5))
-                for label, color in color_map_mpl.items():
-                    sub = item_plot[item_plot["難度評級"]==label]
-                    if len(sub):
-                        ax_a.scatter(sub["難度指數 P"], sub["鑑別度 D"], c=color,
-                                     label=label, s=80, zorder=3)
-                        for _, r in sub.iterrows():
-                            ax_a.annotate(r["題號"], (r["難度指數 P"], r["鑑別度 D"]),
-                                          textcoords="offset points", xytext=(5,3), fontsize=8)
-                ax_a.axhline(0.3, ls="--", c="gray", alpha=0.6)
-                ax_a.axvline(0.25, ls="--", c="gray", alpha=0.6)
-                ax_a.axvline(0.75, ls="--", c="gray", alpha=0.6)
-                ax_a.set_xlabel("難度指數 P"); ax_a.set_ylabel("鑑別度 D")
-                ax_a.set_title("試題難度-鑑別度分佈"); ax_a.legend()
-                buf_a = io.BytesIO(); fig_a.savefig(buf_a, format="png", dpi=150, bbox_inches="tight")
-                charts_png["難度鑑別度分佈"] = buf_a.getvalue(); plt.close(fig_a)
-
-                # 圖2：各題得分率橫條
-                item_sorted = item_plot.sort_values("得分率 %")
-                colors_bar  = [color_map_mpl.get(d,"#95a5a6") for d in item_sorted["難度評級"]]
-                fig_b, ax_b = plt.subplots(figsize=(8, max(4, len(item_sorted)*0.35)))
-                bars = ax_b.barh(item_sorted["題號"].astype(str), item_sorted["得分率 %"], color=colors_bar)
-                ax_b.bar_label(bars, fmt="%.1f%%", padding=3, fontsize=8)
-                ax_b.axvline(50, ls="--", c="gray", alpha=0.6)
-                ax_b.set_xlabel("得分率 %"); ax_b.set_title("各題得分率排行")
-                ax_b.set_xlim(0, min(130, item_sorted["得分率 %"].max()+20))
-                buf_b = io.BytesIO(); fig_b.savefig(buf_b, format="png", dpi=150, bbox_inches="tight")
-                charts_png["各題得分率排行"] = buf_b.getvalue(); plt.close(fig_b)
-
-                # 圖3：總分分佈
-                if len(scores_num) >= 2:
-                    fig_c, ax_c = plt.subplots(figsize=(8,4))
-                    ax_c.hist(scores_num, bins=10, color="#3498db", edgecolor="white", alpha=0.8)
-                    ax_c.axvline(scores_num.mean(), color="#e74c3c", ls="--",
-                                 label=f"平均 {scores_num.mean():.1f}")
-                    ax_c.set_xlabel("總分"); ax_c.set_ylabel("人數")
-                    ax_c.set_title("全班總分分佈"); ax_c.legend()
-                    buf_c = io.BytesIO(); fig_c.savefig(buf_c, format="png", dpi=150, bbox_inches="tight")
-                    charts_png["全班總分分佈"] = buf_c.getvalue(); plt.close(fig_c)
+                # ── 用原版 create_charts 生成完全一致的圖表（含熱力圖）──
+                with st.spinner("生成圖表中..."):
+                    charts_png = ea.create_charts(
+                        df.copy(), max_scores, item_df.copy(), student_df.copy(),
+                        exam_title, chart_dir=None, absent_set=absent_set,
+                        return_bytes=True
+                    ) or {}
 
                 charts_zip_buf = io.BytesIO()
                 with zipfile.ZipFile(charts_zip_buf, "w", zipfile.ZIP_DEFLATED) as czf:
-                    for cname, png in charts_png.items():
-                        czf.writestr(f"{cname}.png", png)
+                    labels = {
+                        "01_difficulty_discrimination.png": "01_難度鑑別度分佈.png",
+                        "02_score_rate_by_question.png":    "02_各題得分率排行.png",
+                        "03_student_score_distribution.png":"03_全班總分分佈.png",
+                        "04_class_heatmap.png":             "04_全班答題熱力圖.png",
+                    }
+                    for fname, png in charts_png.items():
+                        czf.writestr(labels.get(fname, fname), png)
                 charts_zip_buf.seek(0)
 
                 # 存入 session_state
@@ -540,35 +506,19 @@ if page == "📋 試卷分析":
                 with tab4:
                     st.dataframe(stats_df, use_container_width=True)
 
-                # 互動圖表（Plotly，僅展示）
-                st.markdown("### 📊 互動圖表")
-                import plotly.express as px
-                color_map = {"🟢 容易":"#2ecc71","🟡 適中":"#f39c12","🔴 困難":"#e74c3c"}
-                c1, c2 = st.columns(2)
-                with c1:
-                    fig1 = px.scatter(item_plot, x="難度指數 P", y="鑑別度 D",
-                                      text="題號", color="難度評級",
-                                      color_discrete_map=color_map,
-                                      title="試題難度-鑑別度分佈")
-                    fig1.add_hline(y=0.3,  line_dash="dash", line_color="gray")
-                    fig1.add_vline(x=0.25, line_dash="dash", line_color="gray")
-                    fig1.add_vline(x=0.75, line_dash="dash", line_color="gray")
-                    st.plotly_chart(fig1, use_container_width=True)
-                with c2:
-                    fig2 = px.bar(item_plot.sort_values("得分率 %"), x="得分率 %", y="題號",
-                                  orientation="h", color="難度評級",
-                                  color_discrete_map=color_map,
-                                  title="各題得分率排行", text="得分率 %")
-                    fig2.update_traces(texttemplate="%{text}%", textposition="outside")
-                    fig2.add_vline(x=50, line_dash="dash", line_color="gray")
-                    st.plotly_chart(fig2, use_container_width=True)
-                if len(scores_num) >= 2:
-                    import plotly.express as px
-                    fig3 = px.histogram(scores_num, nbins=10, title="全班總分分佈",
-                                        labels={"value":"總分","count":"人數"})
-                    fig3.add_vline(x=scores_num.mean(), line_dash="dash",
-                                   annotation_text=f"平均 {scores_num.mean():.1f}")
-                    st.plotly_chart(fig3, use_container_width=True)
+                # ── 圖表預覽（直接顯示原版 PNG，與下載完全一致）──
+                st.markdown("### 📊 圖表預覽")
+                charts_png_ss = ss.charts_png
+                chart_order = [
+                    ("01_difficulty_discrimination.png", "① 難度－鑑別度分佈"),
+                    ("02_score_rate_by_question.png",    "② 各題得分率排行"),
+                    ("03_student_score_distribution.png","③ 全班總分分佈"),
+                    ("04_class_heatmap.png",             "④ 全班答題熱力圖"),
+                ]
+                for fname, label in chart_order:
+                    if fname in charts_png_ss:
+                        st.markdown(f"**{label}**")
+                        st.image(charts_png_ss[fname], use_container_width=True)
 
                 # ── 下載區（全部從 session_state 讀取，無需重新分析）──
                 st.markdown("### ⬇️ 下載報告")

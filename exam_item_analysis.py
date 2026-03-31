@@ -304,10 +304,15 @@ def item_analysis(df: pd.DataFrame, max_scores: pd.Series,
     high_group = sorted_df.head(k).drop(columns="total")
     low_group  = sorted_df.tail(k).drop(columns="total")
     results = []
+    skipped = []
     for q in df_active.columns:
-        max_s  = max_scores[q]
-        scores = df_active[q]
-        P      = scores.mean() / max_s if max_s > 0 else 0
+        max_s = max_scores.get(q, np.nan) if hasattr(max_scores, 'get') else max_scores[q]
+        # 跳過滿分為 NaN 或 0 的題目
+        if pd.isna(max_s) or max_s <= 0:
+            skipped.append(q)
+            continue
+        scores    = df_active[q]
+        P         = scores.mean() / max_s
         threshold = max_s * 0.5
         PH = (high_group[q] >= threshold).mean()
         PL = (low_group[q]  >= threshold).mean()
@@ -319,6 +324,9 @@ def item_analysis(df: pd.DataFrame, max_scores: pd.Series,
             "難度評級": classify_difficulty(P), "鑑別評級": classify_discrimination(D),
             "建議行動": suggest_action(P, D),
         })
+    if skipped:
+        print(f"   ⚠️  以下題目的滿分為空白或零，已略過分析：{', '.join(str(q) for q in skipped)}")
+        print(f"      請確認 scores.xlsx【滿分】行中對應欄位已填寫數值")
     return pd.DataFrame(results)
 
 
@@ -436,13 +444,27 @@ def question_group_analysis(df, max_scores, item_df):
 # ============================================================
 # 5. 圖表
 # ============================================================
-def create_charts(df, max_scores, item_df, student_df, exam_title, chart_dir, absent_set=None):
-    # 排除缺席學生後繪圖
+def create_charts(df, max_scores, item_df, student_df, exam_title,
+                  chart_dir=None, absent_set=None, return_bytes=False):
+    """
+    生成4張分析圖表。
+    chart_dir: 儲存到資料夾（None 則不寫檔）
+    return_bytes: True 則回傳 dict {檔名: PNG bytes}
+    """
     absent_set = absent_set or set()
     df_plot    = df[~df.index.isin(absent_set)]
     item_df = item_df.copy()
     item_df["得分率 %"] = (item_df["平均分"] / item_df["滿分"] * 100).round(1)
     color_map = {"🟢 容易": "#2ecc71", "🟡 適中": "#f39c12", "🔴 困難": "#e74c3c"}
+    charts_bytes = {}
+
+    def _save(fig, fname):
+        """儲存到檔案 and/or 收集 bytes"""
+        img = fig.to_image(format="png", scale=2)
+        charts_bytes[fname] = img
+        if chart_dir:
+            with open(f"{chart_dir}/{fname}", "wb") as f:
+                f.write(img)
 
     # 圖1: 散佈圖
     fig1 = px.scatter(item_df, x="難度指數 P", y="鑑別度 D", text="題號",
@@ -453,7 +475,7 @@ def create_charts(df, max_scores, item_df, student_df, exam_title, chart_dir, ab
     fig1.add_vline(x=0.25, line_dash="dot", line_color="red",    annotation_text="P=0.25（困難）")
     fig1.add_vline(x=0.75, line_dash="dot", line_color="blue",   annotation_text="P=0.75（容易）")
     fig1.update_traces(textposition="top center", marker_size=12)
-    fig1.write_image(f"{chart_dir}/01_difficulty_discrimination.png", scale=2)
+    _save(fig1, "01_difficulty_discrimination.png")
 
     # 圖2: 得分率橫條圖
     item_sorted = item_df.sort_values("得分率 %")
@@ -462,10 +484,12 @@ def create_charts(df, max_scores, item_df, student_df, exam_title, chart_dir, ab
                   title=f"{exam_title}｜各題得分率排行", text="得分率 %", width=950, height=520)
     fig2.update_traces(texttemplate="%{text}%", textposition="outside")
     fig2.add_vline(x=50, line_dash="dash", line_color="gray", annotation_text="50% 基準")
-    fig2.write_image(f"{chart_dir}/02_score_rate_by_question.png", scale=2)
+    _save(fig2, "02_score_rate_by_question.png")
 
     # 圖3: 分佈曲線（排除缺席學生，只取數值型記錄）
-    scores_numeric = pd.to_numeric(student_df["總分"], errors="coerce").dropna()
+    _score_col = "總分(加權)" if "總分(加權)" in student_df.columns else "總分"
+    scores_numeric = pd.to_numeric(student_df[_score_col], errors="coerce").dropna()
+    total_max  = 100 if _score_col == "總分(加權)" else int(max_scores.sum())
     scores_arr = scores_numeric.values.astype(float)
     total_max  = int(max_scores.sum())
     mean_score = scores_arr.mean()
@@ -483,7 +507,7 @@ def create_charts(df, max_scores, item_df, student_df, exam_title, chart_dir, ab
     fig3.update_layout(title=f"{exam_title}｜全班總分分佈",
                        xaxis_title=f"總分（滿分 {total_max}）", yaxis_title="人數",
                        width=850, height=480, showlegend=True)
-    fig3.write_image(f"{chart_dir}/03_student_score_distribution.png", scale=2)
+    _save(fig3, "03_student_score_distribution.png")
 
     # 圖4: 熱力圖（含數值，保持原始次序）
     score_pct = df_plot.div(max_scores) * 100
@@ -502,8 +526,11 @@ def create_charts(df, max_scores, item_df, student_df, exam_title, chart_dir, ab
     )
     fig4.update_xaxes(tickangle=-45, tickfont=dict(size=10))
     fig4.update_yaxes(tickfont=dict(size=9))
-    fig4.write_image(f"{chart_dir}/04_class_heatmap.png", scale=2)
-    print(f"   ✅ 4 張圖表已儲存至 {chart_dir}/")
+    _save(fig4, "04_class_heatmap.png")
+    if chart_dir:
+        print(f"   ✅ 4 張圖表已儲存至 {chart_dir}/")
+    if return_bytes:
+        return charts_bytes
 
 
 # ============================================================
