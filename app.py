@@ -1,5 +1,5 @@
 """
-DSE 試卷分析系統 - 網頁版
+試卷分析系統 - 網頁版
 Streamlit app (app.py)
 """
 import streamlit as st
@@ -16,7 +16,7 @@ import individual_report  as ir
 # 頁面設定
 # ══════════════════════════════════════════════════════════════
 st.set_page_config(
-    page_title="DSE 試卷分析系統",
+    page_title="試卷分析系統",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -313,7 +313,7 @@ def export_tracking_excel_bytes(pct_matrix, rank_matrix, student_info,
 # ══════════════════════════════════════════════════════════════
 # 側邊欄導航
 # ══════════════════════════════════════════════════════════════
-st.sidebar.markdown("## 📊 DSE 試卷分析系統")
+st.sidebar.markdown("## 📊 試卷分析系統")
 st.sidebar.markdown("---")
 page = st.sidebar.radio(
     "功能選擇",
@@ -329,8 +329,23 @@ st.sidebar.markdown("---")
 # ══════════════════════════════════════════════════════════════
 if page == "📋 試卷分析":
     st.markdown('''<div class="main-header">📋 試卷分析</div>
-<div class="sub-header">上載成績表，即時生成試題分析、學生報告及圖表</div>''',
+<div class="sub-header">上載分數記錄表，生成完整試卷分析報告</div>''',
                 unsafe_allow_html=True)
+
+    st.markdown("""
+<div style="background:#EEF4FF;border-left:4px solid #1F4788;padding:14px 18px;
+border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
+<b>功能</b>：上載分數記錄表，自動計算試題難度、鑑別度及全班統計，並生成個人報告。<br><br>
+<b>使用步驟</b><br>
+①&nbsp;填寫考試資訊 — 選擇年度、考試類別、年級及科目<br>
+②&nbsp;設定試卷結構 — 選擇試卷數目及各卷比重<br>
+③&nbsp;上載分數記錄表 — 選擇檔案（任何檔名均可）<br>
+④&nbsp;開始分析 — 點擊「🚀 開始分析」，系統自動完成計算<br>
+⑤&nbsp;下載報告 — 可個別下載或一鍵取得全部檔案<br><br>
+<b>下載內容</b>&nbsp;&nbsp;
+📊 Excel 分析報告 ｜ 📄 個人報告 Word / PDF ZIP ｜ 🖼️ 圖表 ZIP ｜ 📦 一鍵下載全部
+</div>
+""", unsafe_allow_html=True)
 
     # ── Step 1: 考試資訊 ──
     st.markdown("### ① 考試資訊")
@@ -614,6 +629,24 @@ elif page == "📈 成績追蹤":
     st.markdown('''<div class="main-header">📈 成績追蹤</div>
 <div class="sub-header">上載多次考試的分析報告，生成跨試成績追蹤</div>''',
                 unsafe_allow_html=True)
+
+    st.markdown("""
+<div style="background:#EEF4FF;border-left:4px solid #1F4788;padding:14px 18px;
+border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.7">
+<b>功能</b>：上載多次考試的分析報告，追蹤學生跨試成績趨勢，並生成追蹤報告。<br><br>
+<b>使用步驟：</b><br>
+①&nbsp;設定科目及及格線 — 填寫科目名稱，選擇及格標準<br>
+②&nbsp;上載分析報告 — 選擇由「試卷分析」生成的分析報告（可多選）<br>
+&nbsp;&nbsp;&nbsp;&nbsp;檔名格式：<code>年度_考試類別_年級_科目_analysis.xlsx</code>
+&nbsp;&nbsp;例如：<code>2526_T1E_F5_BAFS_analysis.xlsx</code><br>
+③&nbsp;補充班別資訊（選填）— 上載分數記錄表以補充班別、班號<br>
+④&nbsp;生成追蹤報告 — 點擊「🚀 生成追蹤報告」<br><br>
+<b>下載內容：</b>
+📊 成績追蹤 Excel &nbsp;｜&nbsp;
+📄 追蹤報告 Word / PDF &nbsp;｜&nbsp;
+📦 一鍵下載全部
+</div>
+""", unsafe_allow_html=True)
 
     import performance_tracker as pt
 
