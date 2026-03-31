@@ -381,7 +381,8 @@ def item_analysis(df: pd.DataFrame, max_scores: pd.Series,
 def student_summary(df: pd.DataFrame, max_scores: pd.Series,
                     pass_rate: float = 0.4, absent_set: set = None,
                     paper_weights: dict = None, paper_pct: pd.DataFrame = None,
-                    weighted_scores: pd.Series = None, num_papers: int = 1):
+                    weighted_scores: pd.Series = None, num_papers: int = 1,
+                    paper_map: dict = None):
     absent_set  = absent_set or set()
     df2         = df.copy()
 
@@ -469,16 +470,22 @@ def student_summary(df: pd.DataFrame, max_scores: pd.Series,
     for item, val in _calc_stats(df_active[score_col_name], total_max, ""):
         overall_rows.append(("整體", item, val))
 
-    # ── 各卷分拆統計（多試卷才顯示）──
+    # ── 各卷分拆統計（多試卷才顯示）── 使用實得分數
     paper_rows = []
-    if num_papers > 1 and paper_weights and paper_pct is not None:
-        for p in sorted(paper_weights.keys()):
-            p_max_pct = paper_weights[p] * 100   # 該卷佔總分百分比（加權滿分）
-            if p in paper_pct.columns:
-                p_scores = paper_pct[p].reindex(df.index)  # 各生該卷得分率(%)
-                p_raw_scores = p_scores * p_max_pct / 100  # 轉為加權後分數
-                for item, val in _calc_stats(p_raw_scores, p_max_pct, ""):
-                    paper_rows.append((p, item, val))
+    if num_papers > 1 and paper_map:
+        papers = sorted({v for v in paper_map.values()})
+        for p in papers:
+            # 該卷所有題目欄
+            p_questions = [q for q in df.columns if paper_map.get(q) == p]
+            if not p_questions:
+                continue
+            # 實得分數總和 & 實際滿分
+            p_raw_scores = df[p_questions].sum(axis=1)
+            p_max        = float(max_scores[p_questions].sum())
+            if p_max <= 0:
+                continue
+            for item, val in _calc_stats(p_raw_scores, p_max, ""):
+                paper_rows.append((p, item, val))
 
     # ── 組合成 DataFrame（三欄：區塊、統計項目、數值）──
     all_rows = overall_rows + paper_rows

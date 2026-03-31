@@ -828,7 +828,8 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                     student_df, stats_df = ea.student_summary(
                         df.copy(), max_scores, pass_rate, absent_set,
                         paper_weights=paper_weights, paper_pct=paper_pct,
-                        weighted_scores=weighted_scores, num_papers=num_papers)
+                        weighted_scores=weighted_scores, num_papers=num_papers,
+                        paper_map=paper_map)
                     group_df   = ea.question_group_analysis(df.copy(), max_scores, item_df)
 
                 with st.spinner("生成報告檔案中..."):
