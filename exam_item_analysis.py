@@ -559,18 +559,16 @@ def create_charts(df, max_scores, item_df, student_df, exam_title,
     for bar, val in zip(bars, item_sorted["得分率 %"]):
         ax2.text(val + 0.8, bar.get_y() + bar.get_height() / 2,
                  f"{val:.1f}%", va="center", fontsize=8, color="#333")
-    ax2.axvline(50, ls="--", c="gray", lw=1.2, label="50% 基準", alpha=0.8)
+    ax2.axvline(50, ls="--", c="gray", lw=1.2, alpha=0.8)
     ax2.set_xlabel("得分率 %", fontsize=12)
     ax2.set_title(f"{exam_title}｜各題得分率排行", fontsize=14, fontweight="bold", pad=12)
     ax2.set_xlim(0, min(130, item_sorted["得分率 %"].max() + 18))
-    ax2.legend(fontsize=9)
     ax2.grid(axis="x", alpha=0.3)
-    # 圖例：難度顏色
+    # 圖例：純中文難度標籤（避免 emoji / 特殊符號渲染問題）
     from matplotlib.patches import Patch
-    legend_els = [Patch(facecolor=c, label=f"◼ {l}") for l, c in COLOR.items()]
-    ax2.legend(handles=legend_els + [
-        plt.Line2D([0],[0], ls="--", c="gray", label="50% 基準")
-    ], fontsize=9, loc="lower right")
+    legend_els = [Patch(facecolor=c, label=l) for l, c in COLOR.items()]
+    legend_els.append(plt.Line2D([0],[0], ls="--", c="gray", label="50% 基準"))
+    ax2.legend(handles=legend_els, fontsize=10, loc="lower right")
     _save("02_score_rate_by_question.png", fig2)
 
     # ── 圖3：全班總分分佈 + KDE 曲線 ──

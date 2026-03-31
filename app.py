@@ -22,21 +22,275 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── 全域 CSS ──
+# ── 全域 CSS：現代化設計 ──
 st.markdown("""
 <style>
-    .main-header{font-size:1.8rem;font-weight:700;color:#1F4788;margin-bottom:0.2rem;}
-    .sub-header{font-size:1rem;color:#555;margin-bottom:1.5rem;}
-    .step-badge{background:#1F4788;color:white;border-radius:50%;
-                width:28px;height:28px;display:inline-flex;
-                align-items:center;justify-content:center;
-                font-weight:bold;margin-right:8px;}
-    .success-box{background:#d4edda;border-left:4px solid #28a745;
-                 padding:0.75rem 1rem;border-radius:4px;margin:0.5rem 0;}
-    .warn-box{background:#fff3cd;border-left:4px solid #ffc107;
-              padding:0.75rem 1rem;border-radius:4px;margin:0.5rem 0;}
+/* ── 整體背景 ── */
+[data-testid="stAppViewContainer"] {
+    background: #F4F6FB;
+}
+[data-testid="stHeader"] {
+    background: transparent;
+}
+
+/* ── 側邊欄 ── */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #1A3A6B 0%, #1F4788 60%, #2563B0 100%);
+    border-right: none;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.15);
+}
+[data-testid="stSidebar"] * {
+    color: #E8EEF8 !important;
+}
+[data-testid="stSidebar"] .stRadio label {
+    background: rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin: 4px 0;
+    transition: background 0.2s;
+    font-weight: 500;
+    font-size: 0.95rem;
+}
+[data-testid="stSidebar"] .stRadio label:hover {
+    background: rgba(255,255,255,0.18);
+}
+[data-testid="stSidebar"] [data-baseweb="radio"] input:checked + div {
+    background: rgba(255,255,255,0.25) !important;
+}
+
+/* ── 主內容區 ── */
+.main .block-container {
+    padding: 1.8rem 2.2rem 2rem;
+    max-width: 1100px;
+}
+
+/* ── 頁面標題 ── */
+.main-header {
+    font-size: 2rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #1A3A6B, #2563B0);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 0.1rem;
+    letter-spacing: -0.5px;
+}
+.sub-header {
+    font-size: 1rem;
+    color: #6B7A99;
+    margin-bottom: 1.2rem;
+    font-weight: 400;
+}
+
+/* ── 分區標題（### 樣式）── */
+h3 {
+    color: #1A3A6B !important;
+    font-size: 1.05rem !important;
+    font-weight: 700 !important;
+    padding: 10px 0 6px 0 !important;
+    border-bottom: 2px solid #E0E8F5 !important;
+    margin-bottom: 14px !important;
+}
+
+/* ── 輸入區域卡片 ── */
+[data-testid="stForm"],
+.stSelectbox, .stTextInput,
+[data-testid="column"] {
+    border-radius: 12px;
+}
+
+/* ── 輸入框 ── */
+[data-baseweb="input"] input,
+[data-baseweb="select"] div {
+    border-radius: 8px !important;
+    border: 1.5px solid #D0DCF0 !important;
+    background: #FFFFFF !important;
+    font-size: 0.9rem !important;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+[data-baseweb="input"] input:focus {
+    border-color: #2563B0 !important;
+    box-shadow: 0 0 0 3px rgba(37,99,176,0.12) !important;
+}
+
+/* ── 主按鈕 ── */
+[data-testid="stButton"] > button[kind="primary"],
+button[kind="primary"] {
+    background: linear-gradient(135deg, #1F4788, #2563B0) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 10px !important;
+    padding: 0.55rem 1.5rem !important;
+    font-weight: 600 !important;
+    font-size: 0.95rem !important;
+    box-shadow: 0 4px 14px rgba(37,99,176,0.35) !important;
+    transition: all 0.2s !important;
+    letter-spacing: 0.3px;
+}
+[data-testid="stButton"] > button[kind="primary"]:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 18px rgba(37,99,176,0.45) !important;
+}
+
+/* ── 下載按鈕 ── */
+[data-testid="stDownloadButton"] > button {
+    background: #FFFFFF !important;
+    color: #1F4788 !important;
+    border: 1.5px solid #C5D5EE !important;
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    font-size: 0.88rem !important;
+    padding: 0.45rem 1rem !important;
+    transition: all 0.2s !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06) !important;
+}
+[data-testid="stDownloadButton"] > button:hover {
+    background: #EEF4FF !important;
+    border-color: #2563B0 !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px rgba(37,99,176,0.2) !important;
+}
+
+/* ── 主下載按鈕（一鍵下載）── */
+[data-testid="stDownloadButton"] > button[kind="primary"] {
+    background: linear-gradient(135deg, #1F4788, #2563B0) !important;
+    color: white !important;
+    border: none !important;
+    box-shadow: 0 4px 14px rgba(37,99,176,0.35) !important;
+}
+
+/* ── 標籤頁 ── */
+[data-baseweb="tab-list"] {
+    background: #EEF2FA !important;
+    border-radius: 12px !important;
+    padding: 4px !important;
+    gap: 2px !important;
+    border: none !important;
+}
+[data-baseweb="tab"] {
+    border-radius: 9px !important;
+    font-weight: 600 !important;
+    font-size: 0.88rem !important;
+    padding: 0.4rem 1rem !important;
+    color: #6B7A99 !important;
+    border: none !important;
+    background: transparent !important;
+}
+[aria-selected="true"][data-baseweb="tab"] {
+    background: #FFFFFF !important;
+    color: #1F4788 !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+}
+
+/* ── 指標卡 (st.metric) ── */
+[data-testid="stMetric"] {
+    background: #FFFFFF;
+    border-radius: 12px;
+    padding: 14px 18px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+    border: 1px solid #E8EEF8;
+}
+[data-testid="stMetricLabel"] {
+    color: #6B7A99 !important;
+    font-size: 0.82rem !important;
+    font-weight: 600 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+[data-testid="stMetricValue"] {
+    color: #1A3A6B !important;
+    font-size: 1.6rem !important;
+    font-weight: 800 !important;
+}
+
+/* ── Expander ── */
+[data-testid="stExpander"] {
+    background: #FFFFFF !important;
+    border: 1px solid #E0E8F5 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
+    overflow: hidden;
+}
+[data-testid="stExpander"] summary {
+    font-weight: 600 !important;
+    color: #1A3A6B !important;
+    padding: 14px 18px !important;
+}
+
+/* ── 資料表格 ── */
+[data-testid="stDataFrame"] {
+    border-radius: 12px !important;
+    overflow: hidden !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.07) !important;
+    border: 1px solid #E0E8F5 !important;
+}
+
+/* ── 上載區域 ── */
+[data-testid="stFileUploader"] {
+    background: #FFFFFF !important;
+    border: 2px dashed #C5D5EE !important;
+    border-radius: 14px !important;
+    padding: 12px !important;
+    transition: border-color 0.2s;
+}
+[data-testid="stFileUploader"]:hover {
+    border-color: #2563B0 !important;
+}
+
+/* ── 通知訊息 ── */
+[data-testid="stSuccess"] {
+    background: linear-gradient(135deg, #EAFAF1, #D5F5E3) !important;
+    border-left: 4px solid #27AE60 !important;
+    border-radius: 10px !important;
+    font-weight: 500 !important;
+}
+[data-testid="stInfo"] {
+    background: linear-gradient(135deg, #EBF5FB, #D6EAF8) !important;
+    border-left: 4px solid #2E86C1 !important;
+    border-radius: 10px !important;
+}
+[data-testid="stWarning"] {
+    background: linear-gradient(135deg, #FEFAE0, #FCF3CF) !important;
+    border-left: 4px solid #F1C40F !important;
+    border-radius: 10px !important;
+}
+[data-testid="stError"] {
+    background: linear-gradient(135deg, #FDEDEC, #FADBD8) !important;
+    border-left: 4px solid #E74C3C !important;
+    border-radius: 10px !important;
+}
+
+/* ── 分隔線 ── */
+hr {
+    border: none !important;
+    border-top: 1.5px solid #E0E8F5 !important;
+    margin: 1.2rem 0 !important;
+}
+
+/* ── Spinner ── */
+[data-testid="stSpinner"] {
+    color: #2563B0 !important;
+}
+
+/* ── 成功/警告 自訂方塊 ── */
+.success-box {
+    background: linear-gradient(135deg, #EAFAF1, #D5F5E3);
+    border-left: 4px solid #27AE60;
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    margin: 0.5rem 0;
+    font-weight: 500;
+}
+.warn-box {
+    background: linear-gradient(135deg, #FEFAE0, #FCF3CF);
+    border-left: 4px solid #F1C40F;
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    margin: 0.5rem 0;
+}
 </style>
 """, unsafe_allow_html=True)
+
 
 
 # ══════════════════════════════════════════════════════════════
@@ -313,14 +567,30 @@ def export_tracking_excel_bytes(pct_matrix, rank_matrix, student_info,
 # ══════════════════════════════════════════════════════════════
 # 側邊欄導航
 # ══════════════════════════════════════════════════════════════
-st.sidebar.markdown("## 📊 試卷分析系統")
-st.sidebar.markdown("---")
+st.sidebar.markdown("""
+<div style="text-align:center;padding:22px 10px 16px;
+border-bottom:1px solid rgba(255,255,255,0.15);margin-bottom:8px;">
+  <div style="font-size:2.4rem;margin-bottom:8px;">📊</div>
+  <div style="font-size:1.1rem;font-weight:800;color:#FFFFFF;letter-spacing:0.5px;
+  line-height:1.3;">試卷分析系統</div>
+  <div style="font-size:0.72rem;color:rgba(255,255,255,0.5);margin-top:5px;">
+  DSE Exam Analysis</div>
+</div>
+""", unsafe_allow_html=True)
+
 page = st.sidebar.radio(
-    "功能選擇",
+    "",
     ["📋 試卷分析", "📈 成績追蹤"],
     label_visibility="collapsed"
 )
-st.sidebar.markdown("---")
+
+st.sidebar.markdown("""
+<div style="margin-top:auto;padding:18px 12px 8px;
+border-top:1px solid rgba(255,255,255,0.12);
+text-align:center;font-size:0.68rem;color:rgba(255,255,255,0.3);">
+  試卷分析系統 &nbsp;·&nbsp; 2025-26
+</div>
+""", unsafe_allow_html=True)
 
 
 
@@ -546,7 +816,11 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                         st.image(charts_png_ss[fname], use_container_width=True)
 
                 # ── 下載區（全部從 session_state 讀取，無需重新分析）──
-                st.markdown("### ⬇️ 下載報告")
+                st.markdown("""
+<div style="background:linear-gradient(135deg,#1A3A6B,#2563B0);color:white;
+padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-size:1.05rem;">
+⬇️ 下載報告
+</div>""", unsafe_allow_html=True)
 
                 # 一鍵下載全部
                 all_zip_buf = io.BytesIO()
@@ -769,7 +1043,11 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.7">
                             st.dataframe(pct_matrix.round(1), use_container_width=True, height=400)
 
                         # ── 生成全部報告 ──
-                        st.markdown("### ⬇️ 下載追蹤報告")
+                        st.markdown("""
+<div style="background:linear-gradient(135deg,#1A3A6B,#2563B0);color:white;
+padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-size:1.05rem;">
+⬇️ 下載追蹤報告
+</div>""", unsafe_allow_html=True)
                         years    = sorted(set(ef["year"] for ef in filtered))
                         fp_track = f"{'_'.join(years)}_{track_subject}"
 
