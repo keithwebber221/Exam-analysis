@@ -361,27 +361,20 @@ def load_data_from_bytes(file_bytes: bytes):
         score_series = student_raw.iloc[:, col_idx]
         raw_q_list.append((c, col_idx, paper_label, mv, score_series))
 
-    # ── 偵測跨 Paper 重複題號，自動加前綴 ──
-    from collections import Counter
-    name_count = Counter(orig for orig, _, _, _, _ in raw_q_list)
-    # 若同一題號在不同 paper 都有出現，加 "P1_" / "P2_" 前綴
-    # 若同一題號在同一 paper 重複，加 "_2","_3" 後綴
-    paper_name_seen = {}  # {(paper, orig_name): count}
-    final_q_list = []    # [(final_name, paper_label, max_val, score_series)]
-    need_prefix  = {orig for orig, cnt in name_count.items() if cnt > 1}
+    # ── 題號命名：多試卷時全部加卷別前綴，單試卷保持原名 ──
+    multi_paper = has_paper_row and len({pl for _, _, pl, _, _ in raw_q_list}) > 1
+    paper_name_seen = {}  # {base_name: count}，處理同 paper 內重複
+    final_q_list = []     # [(final_name, paper_label, max_val, score_series)]
 
     for orig, col_idx, paper_label, mv, score_series in raw_q_list:
-        if orig in need_prefix:
-            base = f"{paper_label}_{orig}"
+        # 多份試卷：全部加卷別前綴（P1_Q1a, P2_Q1a）
+        base = f"{paper_label}_{orig}" if multi_paper else orig
+        # 若同 base 名稱重複（極少情況），加數字後綴
+        if base in paper_name_seen:
+            paper_name_seen[base] += 1
+            final_name = f"{base}_{paper_name_seen[base]}"
         else:
-            base = orig
-        # 處理同 paper 內仍重複的情況
-        key = (paper_label, base)
-        if key in paper_name_seen:
-            paper_name_seen[key] += 1
-            final_name = f"{base}_{paper_name_seen[key]}"
-        else:
-            paper_name_seen[key] = 1
+            paper_name_seen[base] = 1
             final_name = base
         final_q_list.append((final_name, paper_label, mv, score_series))
 
