@@ -21,6 +21,15 @@ from matplotlib import rcParams
 from matplotlib import font_manager
 import sys
 
+
+def fmt_score(v):
+    """如為整數顯示整數，否則顯示小數點後一位"""
+    try:
+        fv = float(v)
+        return str(int(fv)) if fv == int(fv) else f"{fv:.1f}"
+    except Exception:
+        return str(v)
+
 def _setup_cjk_font():
     """動態偵測並設定中文字型（支援 macOS / Windows / Linux Streamlit Cloud）"""
     candidates = [
@@ -126,9 +135,9 @@ def create_single_bar_progress(student_total, total_max, class_avg_scores, class
         ax.barh(1, student_rate, height=0.15, color='#3498db', alpha=0.95, edgecolor='navy', linewidth=2, label=f'個人成績 ({student_rate:.1f}%)')
 
         # 標籤
-        ax.text(student_rate + 2, 1.08, f'{int(student_total)}/{int(total_max)}', 
+        ax.text(student_rate + 2, 1.08, f'{fmt_score(student_total)}/{fmt_score(total_max)}', 
                fontsize=11, fontweight='bold', color='#3498db', va='center')
-        ax.text(class_avg_rate + 2, 0.92, f'{int(class_avg_scores)}/{int(class_total_max)}', 
+        ax.text(class_avg_rate + 2, 0.92, f'{fmt_score(class_avg_scores)}/{fmt_score(class_total_max)}', 
                fontsize=10, fontweight='bold', color='#f39c12', va='center')
 
         # 參考線
@@ -340,7 +349,7 @@ def create_personal_report_v2_4(student_name, total_score, total_max,
     student_name_run.font.bold = True
     student_name_run.font.name = DEFAULT_FONT
 
-    score_run = info_para.add_run(f"總分：{int(total_score)}/{int(total_max)}  ({total_score/total_max*100:.1f}%)")
+    score_run = info_para.add_run(f"總分：{fmt_score(total_score)}/{fmt_score(total_max)}  ({total_score/total_max*100:.1f}%)")
     score_run.font.size = Pt(11)
     score_run.font.bold = True
     score_run.font.color.rgb = RGBColor(0, 0, 0)
@@ -383,8 +392,8 @@ def create_personal_report_v2_4(student_name, total_score, total_max,
 
         row_cells = table.add_row().cells
         row_cells[0].text = str(q)
-        row_cells[1].text = str(int(max_s))
-        row_cells[2].text = str(int(score))
+        row_cells[1].text = fmt_score(max_s)
+        row_cells[2].text = fmt_score(score)
         row_cells[3].text = f"{rate:.1f}%"
 
         for cell in row_cells:
@@ -656,7 +665,7 @@ def generate_combined_class_report(df, max_scores, item_df, exam_info, class_inf
         difficulty = 100 - (avg_s / max_s * 100) if max_s > 0 else 0
 
         row_cells[0].text = str(question)
-        row_cells[1].text = str(int(max_s))
+        row_cells[1].text = fmt_score(max_s)
         row_cells[2].text = f"{avg_s:.1f}"
 
         if difficulty >= 70:
@@ -755,8 +764,8 @@ def generate_combined_class_report(df, max_scores, item_df, exam_info, class_inf
 
             row_cells = table.add_row().cells
             row_cells[0].text = str(question)
-            row_cells[1].text = str(int(max_s))
-            row_cells[2].text = str(int(score)) if score == int(score) else f"{score:.1f}"
+            row_cells[1].text = fmt_score(max_s)
+            row_cells[2].text = fmt_score(score) if score == int(score) else f"{score:.1f}"
             row_cells[3].text = f"{rate:.0f}%"
 
         # 分隔符（非最後一個學生）
