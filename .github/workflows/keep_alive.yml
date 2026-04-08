@@ -1,0 +1,22 @@
+name: Keep Streamlit App Alive
+
+on:
+  schedule:
+    # 每6小時執行一次 (UTC 0, 6, 12, 18點)
+    - cron: "0 0,6,12,18 * * *"
+  workflow_dispatch:   # 允許手動觸發
+
+jobs:
+  keep_alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit App
+        run: |
+          echo "Pinging Streamlit app..."
+          STATUS=$(curl -o /dev/null -s -w "%{http_code}"             --max-time 60             ${{ secrets.APP_URL }})
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
+            echo "✅ App is awake (HTTP $STATUS)"
+          else
+            echo "⚠️ App returned HTTP $STATUS"
+          fi
