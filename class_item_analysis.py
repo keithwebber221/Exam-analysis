@@ -79,6 +79,9 @@ def _set_merged(ws, r1, c1, r2, c2, fill_hex, font_obj, val, fmt="@", bdr=None):
     main.number_format = fmt; main.alignment = _CTR
 
 def _make_bar(pct, width=20):
+    if pct is None or (isinstance(pct, float) and (pct != pct)):  # NaN check
+        return "░" * width
+    pct = float(pct)
     filled = max(0, min(width, round(pct * width)))
     return "█" * filled + "░" * (width - filled)
 
@@ -100,25 +103,34 @@ def _compute_stats(df, q_cols, max_scores, paper_map, class_col):
     df2 = df[q_cols].copy()
     df2["_cls"] = class_col.values
 
+    def _safe_mean(s):
+        v = s.dropna().mean()
+        return 0.0 if (v != v) else float(v)
+    def _safe_std(s):
+        v = s.dropna().std(ddof=1) if len(s.dropna()) > 1 else 0.0
+        return 0.0 if (v != v) else float(v)
+
     class_stats = {}
     for cls in classes:
         sub = df2[df2["_cls"] == cls][q_cols]
         class_stats[cls] = {}
         for q in q_cols:
             mx = float(max_scores[q])
+            m  = _safe_mean(sub[q])
             class_stats[cls][q] = {
-                "mean":     round(sub[q].mean(), 2),
-                "mean_pct": sub[q].mean() / mx if mx > 0 else 0,
-                "std":      round(sub[q].std(ddof=1), 2),
+                "mean":     round(m, 2),
+                "mean_pct": m / mx if mx > 0 else 0.0,
+                "std":      round(_safe_std(sub[q]), 2),
             }
 
     grade_stats = {}
     for q in q_cols:
         mx = float(max_scores[q])
+        m  = _safe_mean(df2[q])
         grade_stats[q] = {
-            "mean":     round(df2[q].mean(), 2),
-            "mean_pct": df2[q].mean() / mx if mx > 0 else 0,
-            "std":      round(df2[q].std(ddof=1), 2),
+            "mean":     round(m, 2),
+            "mean_pct": m / mx if mx > 0 else 0.0,
+            "std":      round(_safe_std(df2[q]), 2),
         }
 
     papers = sorted(set(paper_map.values()))
@@ -152,11 +164,15 @@ def _make_class_sheet(wb, cls, q_cols, max_scores, paper_map,
     df_other = df[class_col != cls]
     other_stats = {}
     for q in q_cols:
-        mx = float(max_scores[q])
+        mx   = float(max_scores[q])
+        omean = df_other[q].dropna().mean() if len(df_other) > 0 else 0.0
+        omean = 0.0 if (omean != omean) else omean   # NaN → 0
+        ostd  = df_other[q].dropna().std(ddof=1) if len(df_other) > 1 else 0.0
+        ostd  = 0.0 if (ostd != ostd) else ostd
         other_stats[q] = {
-            "mean":     round(df_other[q].mean(), 2),
-            "mean_pct": df_other[q].mean() / mx if mx > 0 else 0,
-            "std":      round(df_other[q].std(ddof=1), 2),
+            "mean":     round(omean, 2),
+            "mean_pct": omean / mx if mx > 0 else 0.0,
+            "std":      round(ostd, 2),
         }
 
     papers = sorted(set(paper_map.values()))
@@ -252,6 +268,7 @@ def _make_class_sheet(wb, cls, q_cols, max_scores, paper_map,
         _sc(ws.cell(data_row, dc), val=gs["std"],      fill=gf, font=_fnt(size=11,color="3D4E5C"), aln=_CTR, bdr=THIN, fmt="0.00"); dc+=1
 
         d1 = cs["mean_pct"] - gs["mean_pct"]
+        d1 = 0.0 if (d1 != d1) else d1
         _sc(ws.cell(data_row, dc), val=d1, fill=_diff_fill(d1), font=_fnt(bold=True,size=11,color=_diff_color(d1)), aln=_CTR, bdr=THIN, fmt="+0.0%;-0.0%;0.0%"); dc+=1
         filled = max(0, min(BARS, round(abs(d1)/scale*BARS)))
         bar1 = ("▶"*filled + "·"*(BARS-filled)) if d1>=0 else ("·"*(BARS-filled)+"◀"*filled)
@@ -264,6 +281,7 @@ def _make_class_sheet(wb, cls, q_cols, max_scores, paper_map,
         _sc(ws.cell(data_row, dc), val=os_["std"],      fill=of, font=_fnt(size=11,color="6C3483"), aln=_CTR, bdr=THIN, fmt="0.00"); dc+=1
 
         d2 = cs["mean_pct"] - os_["mean_pct"]
+        d2 = 0.0 if (d2 != d2) else d2
         _sc(ws.cell(data_row, dc), val=d2, fill=_diff_fill(d2), font=_fnt(bold=True,size=11,color=_diff_color(d2)), aln=_CTR, bdr=THIN, fmt="+0.0%;-0.0%;0.0%"); dc+=1
         filled2 = max(0, min(BARS, round(abs(d2)/scale*BARS)))
         bar2 = ("▶"*filled2+"·"*(BARS-filled2)) if d2>=0 else ("·"*(BARS-filled2)+"◀"*filled2)
