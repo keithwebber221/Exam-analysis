@@ -579,9 +579,8 @@ def generate_reports_zip(df, max_scores, item_df, exam_info, class_info,
     docx_entries = []   # [(fname_base, docx_bytes), ...]
     pdf_entries  = []   # [(fname_base, pdf_bytes), ...]
 
-    for student_name in df.index:
-        _raw_ss = total_scores[student_name]
-        student_score = float(_raw_ss.iloc[0]) if hasattr(_raw_ss, "iloc") else float(_raw_ss)
+    for row_i, student_name in enumerate(df.index):
+        student_score = float(total_scores.iloc[row_i])   # 用位置避免重名返回 Series
         class_code, class_num = class_info_dict.get(student_name, ("", "00"))
         try:
             class_num_int = int(float(class_num))
@@ -606,7 +605,7 @@ def generate_reports_zip(df, max_scores, item_df, exam_info, class_info,
         else:
             doc = ir.create_personal_report_v2_4(
                 student_name, student_score, total_max,
-                df.loc[student_name], max_scores, item_df,
+                df.iloc[row_i], max_scores, item_df,
                 exam_info, class_avg, total_max,
                 class_info, pass_rate
             )

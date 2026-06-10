@@ -301,6 +301,9 @@ def create_personal_report_v2_4(student_name, total_score, total_max,
     # 確保純量，防止 Series 傳入
     total_score = float(total_score.iloc[0]) if hasattr(total_score, "iloc") else float(total_score)
     total_max   = float(total_max.iloc[0])   if hasattr(total_max,   "iloc") else float(total_max)
+    # 確保 df_student_scores 是 Series（防止重名導致傳入 DataFrame）
+    if hasattr(df_student_scores, "ndim") and df_student_scores.ndim == 2:
+        df_student_scores = df_student_scores.iloc[0]
 
     doc = Document()
 
