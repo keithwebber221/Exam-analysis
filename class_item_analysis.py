@@ -501,11 +501,11 @@ def generate_class_analysis_excel(
     class_info: pd.DataFrame,
     exam_info: dict,
 ) -> bytes:
-    if "中文姓名" in class_info.columns:
-        cls_map   = dict(zip(class_info["中文姓名"].astype(str), class_info["班別"].astype(str)))
-        class_col = pd.Series([cls_map.get(str(n),"未知") for n in df.index], index=df.index)
-    else:
-        class_col = class_info["班別"].astype(str); class_col.index = df.index
+    # 用位置對應（避免重複姓名導致班別誤判）
+    class_col = pd.Series(
+        class_info["班別"].astype(str).values,
+        index=df.index
+    )
 
     q_cols  = list(max_scores.index)
     classes = sorted(class_col.unique().tolist())
@@ -536,11 +536,11 @@ def get_class_summary_df(
     paper_map: dict,
     class_info: pd.DataFrame,
 ) -> pd.DataFrame:
-    if "中文姓名" in class_info.columns:
-        cls_map   = dict(zip(class_info["中文姓名"].astype(str), class_info["班別"].astype(str)))
-        class_col = pd.Series([cls_map.get(str(n),"未知") for n in df.index], index=df.index)
-    else:
-        class_col = class_info["班別"].astype(str)
+    # 用位置對應（避免重複姓名導致班別誤判）
+    class_col = pd.Series(
+        class_info["班別"].astype(str).values,
+        index=df.index
+    )
 
     q_cols   = list(max_scores.index)
     total_mx = float(max_scores.sum())
