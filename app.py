@@ -580,7 +580,8 @@ def generate_reports_zip(df, max_scores, item_df, exam_info, class_info,
     pdf_entries  = []   # [(fname_base, pdf_bytes), ...]
 
     for student_name in df.index:
-        student_score = total_scores[student_name]
+        _raw_ss = total_scores[student_name]
+        student_score = float(_raw_ss.iloc[0]) if hasattr(_raw_ss, "iloc") else float(_raw_ss)
         class_code, class_num = class_info_dict.get(student_name, ("", "00"))
         try:
             class_num_int = int(float(class_num))

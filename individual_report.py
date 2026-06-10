@@ -298,6 +298,10 @@ def create_personal_report_v2_4(student_name, total_score, total_max,
                                pass_rate=0.4):
     """生成新版個人報告 v2.5（精簡版）"""
 
+    # 確保純量，防止 Series 傳入
+    total_score = float(total_score.iloc[0]) if hasattr(total_score, "iloc") else float(total_score)
+    total_max   = float(total_max.iloc[0])   if hasattr(total_max,   "iloc") else float(total_max)
+
     doc = Document()
 
     # 設定 A4 直向
@@ -349,7 +353,9 @@ def create_personal_report_v2_4(student_name, total_score, total_max,
     student_name_run.font.bold = True
     student_name_run.font.name = DEFAULT_FONT
 
-    score_run = info_para.add_run(f"總分：{fmt_score(total_score)}/{fmt_score(total_max)}  ({total_score/total_max*100:.1f}%)")
+    _ts = float(total_score) if not hasattr(total_score, "__len__") else float(total_score.iloc[0]) if hasattr(total_score, "iloc") else float(total_score)
+    _tm = float(total_max) if not hasattr(total_max, "__len__") else float(total_max.iloc[0]) if hasattr(total_max, "iloc") else float(total_max)
+    score_run = info_para.add_run(f"總分：{fmt_score(_ts)}/{fmt_score(_tm)}  ({_ts/_tm*100:.1f}%)")
     score_run.font.size = Pt(11)
     score_run.font.bold = True
     score_run.font.color.rgb = RGBColor(0, 0, 0)
