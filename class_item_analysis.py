@@ -11,6 +11,7 @@ import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.formatting.rule import ColorScaleRule
 
 # ══════════════════════════════════════════════════════════════
 # 配色常數（最多支援 8 班）
@@ -567,34 +568,31 @@ def _make_heatmap_sheet(wb, class_stats, grade_stats, classes, q_cols, paper_map
         THIN_H = _thin_border("BBBBBB")
         for i, cls in enumerate(classes):
             pct = pcts[i]
-            t   = (pct - mn2)/(mx2 - mn2) if mx2 > mn2 else 0.5
-            t   = max(0.0, min(1.0, t))
-            # 清晰三段：深紅(0) → 白/淡黃(0.5) → 深綠(1)
-            if t < 0.5:
-                t2   = t * 2                        # 0→1
-                r2   = int(198 + (1-t2)*57)         # 255→198
-                g2   = int(t2 * 175)                # 0→175
-                b2   = int(t2 * 80)                 # 0→80
-            else:
-                t2   = (t - 0.5) * 2               # 0→1
-                r2   = int(198 * (1-t2))            # 198→0
-                g2   = int(175 + t2 * 55)           # 175→230
-                b2   = int(80  + t2 * 20)           # 80→100
-            r2 = max(0,min(255,r2)); g2=max(0,min(255,g2)); b2=max(0,min(255,b2))
-            hex_bg  = f"{r2:02X}{g2:02X}{b2:02X}"
-            # 文字顏色：背景深時用白，背景淡時用深色
-            lum = 0.299*r2 + 0.587*g2 + 0.114*b2
-            txt_col = "FFFFFF" if lum < 140 else "1A1A1A"
-            _sc(ws.cell(row, 4+i), val=pct, fill=_cfill(hex_bg),
-                font=_fnt(size=11, color=txt_col), aln=_CTR, fmt="0.0%", bdr=THIN_H)
+            # 儲存格本身不填色，由 colorScale 條件格式控制顏色
+            _sc(ws.cell(row, 4+i), val=pct,
+                font=_fnt(size=11, color="000000"), aln=_CTR, fmt="0.0%", bdr=THIN_H)
 
-        # 全級欄
+        # 全級欄（固定淡黃色）
         _sc(ws.cell(row, 4+n_cls), val=grade_pct,
             fill=_cfill("FFF2CC"), font=_fnt(bold=True, size=11, color="7F4F00"),
             aln=_CTR, fmt="0.0%", bdr=THIN_H)
         # 題號欄框線
         ws.cell(row, 3).border = THIN_H
         row += 1
+
+    # ── colorScale 條件格式（對齊範本v12：每班欄獨立，紅-黃-綠）──
+    data_start = 5   # 數據從第5行開始（4=標題行）
+    data_end   = row - 1
+    for i in range(n_cls):
+        col_letter = get_column_letter(4 + i)
+        cf_range   = f"{col_letter}{data_start}:{col_letter}{data_end}"
+        rule = ColorScaleRule(
+            start_type='min',        start_color='F8696B',   # 深紅
+            mid_type='percentile',   mid_value=50,
+                                     mid_color='FFEB84',     # 黃
+            end_type='max',          end_color='63BE7B',     # 深綠
+        )
+        ws.conditional_formatting.add(cf_range, rule)
 
     # ── 欄寬（對齊範本v12）──
     ws.column_dimensions["B"].width = 8
