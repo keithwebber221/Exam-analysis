@@ -695,7 +695,7 @@ border-bottom:1px solid rgba(255,255,255,0.15);margin-bottom:10px;">
 
 page = st.sidebar.radio(
     "",
-    ["試卷分析", "成績追蹤", "🏫 班際分析"],
+    ["試卷分析", "班際分析", "成績追蹤"],
     label_visibility="collapsed"
 )
 
@@ -1247,40 +1247,171 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                                 st.info("PDF 需 LibreOffice（packages.txt）")
 
 
+
 # ══════════════════════════════════════════════════════════════
 # 頁面：全級班際分析（第二階段新增）
 # ══════════════════════════════════════════════════════════════
-elif page == "🏫 班際分析":
+elif page == "班際分析":
 
-    st.markdown('<div class="main-header">🏫 全級班際項目分析</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">基於已上傳的成績檔案，按班別進行各題平均得分率比較分析。</div>', unsafe_allow_html=True)
+    st.markdown('''<div class="main-header">全級班際項目分析</div>
+<div class="sub-header">比較各班在每道題目的平均得分率，找出各班強弱項目</div>''',
+                unsafe_allow_html=True)
 
-    # ── 檢查是否已完成試卷分析 ──
-    has_data = st.session_state.get("analysis_done", False)
-    if not has_data:
-        st.warning("⚠️ 請先前往「試卷分析」頁面上傳並完成分析，再返回此頁。")
-        st.stop()
+    # ── 功能介紹框（參考試卷分析頁風格）──
+    st.markdown("""
+<div style="background:#EEF4FF;border-left:4px solid #1F4788;padding:14px 18px;
+border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
+<b>功能</b>：根據分數記錄表，按班別比較每道題目的平均得分率、成績分佈及合格率，幫助教師識別各班的強弱題目。<br><br>
+<b>使用步驟</b><br>
+&nbsp;&nbsp;<b>方法一（已在試卷分析頁完成分析）</b><br>
+①&nbsp;前往「試卷分析」頁完成上載及分析<br>
+②&nbsp;返回本頁，點擊「直接輸出班際分析」即可生成報告<br><br>
+&nbsp;&nbsp;<b>方法二（直接在本頁上載）</b><br>
+①&nbsp;填寫考試資訊 — 選擇年度、考試類別、年級及科目<br>
+②&nbsp;設定試卷結構 — 選擇試卷數目及各卷比重<br>
+③&nbsp;上載分數記錄表 — 格式與試卷分析頁相同<br>
+④&nbsp;點擊「開始班際分析」，系統自動完成計算<br>
+⑤&nbsp;下載報告<br><br>
+<b>下載內容</b>&nbsp;&nbsp;
+班際分析 Excel（各班逐題對比頁、分數分佈頁、班際熱力圖）
+</div>
+""", unsafe_allow_html=True)
 
-    ss         = st.session_state
-    df         = ss.get("df") or ss.item_df.pipe(lambda _: None)   # fallback
-    max_scores = ss.get("max_scores")
-    paper_map  = ss.get("paper_map")
-    class_info = ss.get("class_info")
-    exam_info  = ss.get("exam_info", {
-        "exam_title":  ss.get("exam_title", "試卷分析"),
-        "file_prefix": ss.get("file_prefix", "分析"),
-    })
+    # ══════════════════════════════════════════════════════════
+    # 方法一：沿用試卷分析頁的 session_state
+    # ══════════════════════════════════════════════════════════
+    has_prior = st.session_state.get("analysis_done", False)
 
-    # 若 session_state 沒有直接存 df，從 item_df 無法重建 raw scores
-    # 提示用戶重新上傳
-    if df is None or max_scores is None or paper_map is None or class_info is None:
-        st.error(
-            "❌ 找不到原始成績資料。請回到「試卷分析」頁面，"
-            "重新上傳 scores.xlsx 並點擊「開始分析」後再試。"
+    if has_prior:
+        st.markdown("""
+<div style="background:#EAFAF1;border-left:4px solid #27AE60;padding:12px 18px;
+border-radius:6px;margin-bottom:14px;font-size:0.95em;">
+<b>已偵測到試卷分析結果</b> — 可直接輸出班際分析報告，無需重新上載。
+</div>""", unsafe_allow_html=True)
+
+    method_options = ["方法一：沿用試卷分析頁的數據（已分析）", "方法二：在本頁直接上載分數記錄表"]
+    if not has_prior:
+        method_options[0] += "  ⚠️ 尚未完成試卷分析"
+
+    method = st.radio("選擇資料來源", method_options,
+                      label_visibility="collapsed",
+                      disabled=False)
+    use_prior = method.startswith("方法一")
+
+    # ── 選擇方法一 ──
+    if use_prior:
+        if not has_prior:
+            st.warning("⚠️ 尚未在「試卷分析」頁完成分析。請先前往試卷分析頁上載並完成分析後再返回。")
+            st.stop()
+
+        ss         = st.session_state
+        df         = ss.get("df")
+        max_scores = ss.get("max_scores")
+        paper_map  = ss.get("paper_map")
+        class_info = ss.get("class_info")
+        exam_info  = ss.get("exam_info", {
+            "exam_title":  ss.get("exam_title", "試卷分析"),
+            "file_prefix": ss.get("file_prefix", "分析"),
+        })
+
+        if df is None or max_scores is None or paper_map is None or class_info is None:
+            st.error("❌ 試卷分析數據不完整，請重新前往試卷分析頁完成分析。")
+            st.stop()
+
+        fp = exam_info.get("file_prefix", "分析")
+        st.info(f"目前資料：{exam_info.get('exam_title','試卷分析')}　·　{len(df)} 名學生　·　{len(max_scores)} 道題目")
+
+    # ── 選擇方法二：本頁直接上載 ──
+    else:
+        st.markdown("### 考試資訊")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            cia_year    = st.text_input("年度（如 2526）", value="2526", max_chars=4, key="cia_year")
+            cia_etype   = st.selectbox("考試類別", ["上學期測驗","上學期考試","下學期測驗","下學期考試"], key="cia_etype")
+        with col2:
+            cia_form    = st.selectbox("年級", ["F1","F2","F3","F4","F5","F6"], key="cia_form")
+            cia_subject = st.text_input("科目（如 BAFS）", value="BAFS", key="cia_subject")
+        with col3:
+            cia_pass_pct = st.selectbox("及格線", ["40%（高中）","50%（初中）"], key="cia_pass")
+            cia_pass_rate = 0.4 if "40" in cia_pass_pct else 0.5
+
+        st.markdown("### 試卷結構")
+        cia_num_papers = st.selectbox("試卷數目", [1,2,3,4],
+                                      format_func=lambda x: f"{x} 份試卷", key="cia_np")
+        cia_paper_weights = {"P1": 1.0}
+        if cia_num_papers > 1:
+            st.info("各試卷比例合計必須為 100%")
+            wcols = st.columns(cia_num_papers)
+            tmp_w = {}
+            for i, wc in enumerate(wcols, 1):
+                with wc:
+                    w = wc.number_input(f"卷{i}（P{i}）比例 %",
+                                        min_value=1, max_value=99,
+                                        value=100//cia_num_papers, step=1,
+                                        key=f"cia_pw{i}")
+                    tmp_w[f"P{i}"] = w
+            tot_w = sum(tmp_w.values())
+            if tot_w != 100:
+                st.warning(f"目前合計：{tot_w}%，請調整至 100%")
+            else:
+                cia_paper_weights = {k: v/100 for k, v in tmp_w.items()}
+                st.success(f"各卷比例設定完成：{tmp_w}")
+
+        EXAM_CODES = {"上學期測驗":"T1T","上學期考試":"T1E","下學期測驗":"T2T","下學期考試":"T2E"}
+        cia_year_label  = f"20{cia_year[2:]}-20{int(cia_year[2:])+1}" if len(cia_year)==4 else cia_year
+        cia_exam_title  = f"{cia_year_label} {cia_etype} {cia_form} {cia_subject}"
+        cia_file_prefix = f"{cia_year}{EXAM_CODES.get(cia_etype,'EXAM')}{cia_form}{cia_subject}"
+        exam_info = {
+            "year_label":   cia_year_label,
+            "exam_type_label": cia_etype,
+            "exam_type_code":  EXAM_CODES.get(cia_etype,"EXAM"),
+            "subject_label":   cia_subject,
+            "form_label":      cia_form,
+            "exam_title":      cia_exam_title,
+            "file_prefix":     cia_file_prefix,
+            "pass_rate":       cia_pass_rate,
+            "paper_weights":   cia_paper_weights,
+            "num_papers":      cia_num_papers,
+        }
+        fp = cia_file_prefix
+
+        st.markdown("### 上載分數記錄表")
+        st.markdown("""<div style="background:#F8F9FA;border:1px solid #DEE2E6;padding:10px 14px;
+border-radius:6px;font-size:0.88em;color:#555;margin-bottom:8px;">
+格式與試卷分析頁相同：第1-2行為說明行，第3行為題號，第4行為試卷標示（P1/P2…，單卷可省略），
+第5行為滿分，第6行起為學生成績。第1列為班別，第2列為班號，第4列為中文姓名。
+</div>""", unsafe_allow_html=True)
+        cia_uploaded = st.file_uploader(
+            "上載 scores.xlsx（任何檔名均可）",
+            type="xlsx",
+            help="格式與試卷分析頁完全相同",
+            key="cia_upload"
         )
-        st.stop()
+        if cia_uploaded is None:
+            st.info("請上載分數記錄表以繼續。")
+            st.stop()
 
-    # ── 建立班別 Series ──
+        raw_bytes = cia_uploaded.read()
+        try:
+            df, max_scores, absent_set_cia, paper_map, class_info = load_data_from_bytes(raw_bytes)
+            papers_in_excel = sorted(set(paper_map.values()))
+            st.markdown(
+                f'<div class="success-box"><b>成功讀取</b>：{len(df)} 名學生　·　' +
+                f'{len(df.columns)} 道題目　·　試卷：{" / ".join(papers_in_excel)}' +
+                (f'　·　缺席：{"、".join(sorted(absent_set_cia))}' if absent_set_cia else "") +
+                "</div>",
+                unsafe_allow_html=True
+            )
+        except Exception as e:
+            st.error(f"讀取失敗：{e}")
+            st.stop()
+
+    # ══════════════════════════════════════════════════════════
+    # 共同部分：班別檢查 + 預覽 + 生成 Excel
+    # ══════════════════════════════════════════════════════════
+    st.markdown("---")
+
+    # 建立班別 Series
     if "中文姓名" in class_info.columns:
         cls_map   = dict(zip(class_info["中文姓名"].astype(str),
                              class_info["班別"].astype(str)))
@@ -1297,24 +1428,23 @@ elif page == "🏫 班際分析":
 
     if n_classes < 2:
         st.warning(
-            f"⚠️ 只偵測到 {n_classes} 個班別（{classes}），"
-            "需至少 2 個班別才能進行班際比較。\n\n"
-            "請確認成績檔案的「班別」欄（第 1 列）已正確填寫各班代號（如 5A、5B）。"
+            f"只偵測到 {n_classes} 個班別（{classes}），需至少 2 個班別才能進行班際比較。\n\n"
+            "請確認成績檔案的「班別」欄已正確填寫各班代號（如 5A、5B）。"
         )
         st.stop()
 
     st.success(
-        f"✅ 已載入：**{len(df)}** 名學生　·　**{n_classes}** 個班別"
+        f"已載入：**{len(df)}** 名學生　·　**{n_classes}** 個班別"
         f"（{'、'.join(classes)}）　·　**{len(max_scores)}** 道題目"
     )
 
     # ── 班際成績摘要 ──
-    st.markdown("### 📊 班際成績摘要")
+    st.markdown("### 班際成績摘要")
     summary_df = cia.get_class_summary_df(df, max_scores, paper_map, class_info)
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
     # ── 各題班際平均%預覽 ──
-    with st.expander("📋 查看各題班際平均得分率", expanded=False):
+    with st.expander("查看各題班際平均得分率", expanded=False):
         q_cols = list(max_scores.index)
         preview_rows = []
         for q in q_cols:
@@ -1334,12 +1464,17 @@ elif page == "🏫 班際分析":
 
     # ── 生成並下載 Excel ──
     st.markdown("---")
-    st.markdown("### ⬇️ 下載完整 Excel 分析報告")
-    st.markdown("報告包含：**各班分析**（每班一頁）、**分數分佈**（各卷+合併）、**班際熱力圖**")
+    st.markdown("### 下載完整 Excel 分析報告")
+    st.markdown("""
+<div style="background:#F8F9FA;border:1px solid #DEE2E6;padding:10px 14px;
+border-radius:6px;font-size:0.88em;color:#555;margin-bottom:10px;">
+<b>Excel 報告內容</b>：各班逐題對比分析（每班一頁）｜ 分數分佈（各卷及合併）｜ 班際熱力圖
+</div>""", unsafe_allow_html=True)
 
     col_btn, col_dl = st.columns([1, 2])
     with col_btn:
-        gen_btn = st.button("🔄 生成 Excel 報告", type="primary", use_container_width=True)
+        gen_btn = st.button("生成班際分析 Excel", type="primary", use_container_width=True,
+                            key="cia_gen_btn")
 
     if gen_btn:
         with st.spinner("正在生成全級班際分析 Excel……"):
@@ -1348,21 +1483,24 @@ elif page == "🏫 班際分析":
                     df, max_scores, paper_map, class_info, exam_info
                 )
                 st.session_state["cia_excel_bytes"] = excel_bytes
-                st.success("✅ 生成完成！")
+                st.session_state["cia_fp"] = fp
+                st.success("生成完成！")
             except Exception as e:
-                st.error(f"❌ 生成失敗：{e}")
+                st.error(f"生成失敗：{e}")
                 import traceback
                 st.code(traceback.format_exc())
                 st.stop()
 
     if "cia_excel_bytes" in st.session_state:
-        fp    = exam_info.get("file_prefix", exam_info.get("exam_title", "分析"))
-        fname = f"{fp}_全級班際分析.xlsx"
+        _fp    = st.session_state.get("cia_fp", fp)
+        _fname = f"{_fp}_全級班際分析.xlsx"
         with col_dl:
             st.download_button(
-                label="📥 下載全級班際分析 Excel",
+                label="下載班際分析 Excel",
                 data=st.session_state["cia_excel_bytes"],
-                file_name=fname,
+                file_name=_fname,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
+                type="primary",
+                key="cia_dl_btn"
             )
