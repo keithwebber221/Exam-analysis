@@ -11,6 +11,7 @@ import io, os, sys, zipfile, tempfile, re
 sys.path.insert(0, os.path.dirname(__file__))
 import exam_item_analysis as ea
 import individual_report  as ir
+import class_item_analysis as cia          # ← 第二階段新增
 
 # ══════════════════════════════════════════════════════════════
 # 頁面設定
@@ -694,7 +695,7 @@ border-bottom:1px solid rgba(255,255,255,0.15);margin-bottom:10px;">
 
 page = st.sidebar.radio(
     "",
-    ["試卷分析", "成績追蹤"],
+    ["試卷分析", "成績追蹤", "🏫 班際分析"],
     label_visibility="collapsed"
 )
 
@@ -879,6 +880,10 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                 # 存入 session_state
                 ss = st.session_state
                 ss.analysis_done  = True
+                ss.df             = df            # ← 第二階段新增
+                ss.max_scores     = max_scores    # ← 第二階段新增
+                ss.paper_map      = paper_map     # ← 第二階段新增
+                ss.class_info     = class_info    # ← 第二階段新增
                 ss.item_df        = item_df
                 ss.student_df     = student_df
                 ss.stats_df       = stats_df
@@ -893,6 +898,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                 ss.scores_num     = scores_num
                 ss.file_prefix    = file_prefix
                 ss.exam_title     = exam_title
+                ss.exam_info      = exam_info  # ← 第二階段新增
                 st.success("✅ 分析完成！所有報告已就緒，可直接下載。")
 
             # ── 顯示結果（從 session_state 讀取，不重新分析）──
@@ -1239,3 +1245,124 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                                     use_container_width=True)
                             else:
                                 st.info("PDF 需 LibreOffice（packages.txt）")
+
+
+# ══════════════════════════════════════════════════════════════
+# 頁面：全級班際分析（第二階段新增）
+# ══════════════════════════════════════════════════════════════
+elif page == "🏫 班際分析":
+
+    st.markdown('<div class="main-header">🏫 全級班際項目分析</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">基於已上傳的成績檔案，按班別進行各題平均得分率比較分析。</div>', unsafe_allow_html=True)
+
+    # ── 檢查是否已完成試卷分析 ──
+    has_data = st.session_state.get("analysis_done", False)
+    if not has_data:
+        st.warning("⚠️ 請先前往「試卷分析」頁面上傳並完成分析，再返回此頁。")
+        st.stop()
+
+    ss         = st.session_state
+    df         = ss.get("df") or ss.item_df.pipe(lambda _: None)   # fallback
+    max_scores = ss.get("max_scores")
+    paper_map  = ss.get("paper_map")
+    class_info = ss.get("class_info")
+    exam_info  = ss.get("exam_info", {
+        "exam_title":  ss.get("exam_title", "試卷分析"),
+        "file_prefix": ss.get("file_prefix", "分析"),
+    })
+
+    # 若 session_state 沒有直接存 df，從 item_df 無法重建 raw scores
+    # 提示用戶重新上傳
+    if df is None or max_scores is None or paper_map is None or class_info is None:
+        st.error(
+            "❌ 找不到原始成績資料。請回到「試卷分析」頁面，"
+            "重新上傳 scores.xlsx 並點擊「開始分析」後再試。"
+        )
+        st.stop()
+
+    # ── 建立班別 Series ──
+    if "中文姓名" in class_info.columns:
+        cls_map   = dict(zip(class_info["中文姓名"].astype(str),
+                             class_info["班別"].astype(str)))
+        class_col = pd.Series(
+            [cls_map.get(str(n), "未知") for n in df.index],
+            index=df.index
+        )
+    else:
+        class_col = class_info["班別"].astype(str)
+        class_col.index = df.index
+
+    classes   = sorted(class_col.unique().tolist())
+    n_classes = len(classes)
+
+    if n_classes < 2:
+        st.warning(
+            f"⚠️ 只偵測到 {n_classes} 個班別（{classes}），"
+            "需至少 2 個班別才能進行班際比較。\n\n"
+            "請確認成績檔案的「班別」欄（第 1 列）已正確填寫各班代號（如 5A、5B）。"
+        )
+        st.stop()
+
+    st.success(
+        f"✅ 已載入：**{len(df)}** 名學生　·　**{n_classes}** 個班別"
+        f"（{'、'.join(classes)}）　·　**{len(max_scores)}** 道題目"
+    )
+
+    # ── 班際成績摘要 ──
+    st.markdown("### 📊 班際成績摘要")
+    summary_df = cia.get_class_summary_df(df, max_scores, paper_map, class_info)
+    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+    # ── 各題班際平均%預覽 ──
+    with st.expander("📋 查看各題班際平均得分率", expanded=False):
+        q_cols = list(max_scores.index)
+        preview_rows = []
+        for q in q_cols:
+            row_d = {
+                "題號": q,
+                "滿分": int(max_scores[q]),
+                "卷別": paper_map.get(q, "P1"),
+            }
+            for cls in classes:
+                mask = class_col == cls
+                pct  = df[mask][q].mean() / float(max_scores[q])
+                row_d[f"{cls} 平均%"] = f"{pct*100:.1f}%"
+            all_pct = df[q].mean() / float(max_scores[q])
+            row_d["全級 平均%"] = f"{all_pct*100:.1f}%"
+            preview_rows.append(row_d)
+        st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
+
+    # ── 生成並下載 Excel ──
+    st.markdown("---")
+    st.markdown("### ⬇️ 下載完整 Excel 分析報告")
+    st.markdown("報告包含：**各班分析**（每班一頁）、**分數分佈**（各卷+合併）、**班際熱力圖**")
+
+    col_btn, col_dl = st.columns([1, 2])
+    with col_btn:
+        gen_btn = st.button("🔄 生成 Excel 報告", type="primary", use_container_width=True)
+
+    if gen_btn:
+        with st.spinner("正在生成全級班際分析 Excel……"):
+            try:
+                excel_bytes = cia.generate_class_analysis_excel(
+                    df, max_scores, paper_map, class_info, exam_info
+                )
+                st.session_state["cia_excel_bytes"] = excel_bytes
+                st.success("✅ 生成完成！")
+            except Exception as e:
+                st.error(f"❌ 生成失敗：{e}")
+                import traceback
+                st.code(traceback.format_exc())
+                st.stop()
+
+    if "cia_excel_bytes" in st.session_state:
+        fp    = exam_info.get("file_prefix", exam_info.get("exam_title", "分析"))
+        fname = f"{fp}_全級班際分析.xlsx"
+        with col_dl:
+            st.download_button(
+                label="📥 下載全級班際分析 Excel",
+                data=st.session_state["cia_excel_bytes"],
+                file_name=fname,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
