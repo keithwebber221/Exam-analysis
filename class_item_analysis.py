@@ -228,7 +228,7 @@ def _make_class_sheet(wb, cls, q_cols, max_scores, paper_map,
     n_other = len(df_other)
     n_all   = len(df)
     other_label = "+".join(other_classes)
-    NCOLS = 18
+    NCOLS = 19  # B到T = 19欄（T=col20=B+19-1）
     THIN  = _thin_border()
 
     ws.row_dimensions[2].height = 34
@@ -291,7 +291,8 @@ def _make_class_sheet(wb, cls, q_cols, max_scores, paper_map,
 
         ws.row_dimensions[data_row].height = 18
         dc = 2
-        _sc(ws.cell(data_row, dc), val=q,       fill=bg, font=_fnt(bold=True,size=11), aln=_CTR, bdr=THIN); dc+=1
+        q_disp = q.split("_",1)[-1] if "_" in q else q  # 去掉卷別前綴
+        _sc(ws.cell(data_row, dc), val=q_disp, fill=bg, font=_fnt(bold=True,size=11), aln=_CTR, bdr=THIN); dc+=1
         _sc(ws.cell(data_row, dc), val=int(mx), fill=bg, font=_fnt(size=12),            aln=_CTR, bdr=THIN, fmt="0"); dc+=1
         _sc(ws.cell(data_row, dc), val=n_cls,          fill=bg, font=_fnt(size=12), aln=_CTR, bdr=THIN, fmt="0"); dc+=1
         _sc(ws.cell(data_row, dc), val=cs["mean"],     fill=bg, font=_fnt(size=12), aln=_CTR, bdr=THIN, fmt="0.00"); dc+=1
@@ -357,6 +358,7 @@ def _make_distribution_sheet(wb, df, max_scores, paper_map, class_col, classes, 
 
     THICK_B = _med_border("7F9AB5")
     STAT_B  = _thin_border("5D8AA8")
+    THIN    = _thin_border()
     cur_row = 4
 
     for sec_label, raw_series, s_max in sections:
@@ -417,9 +419,9 @@ def _make_distribution_sheet(wb, df, max_scores, paper_map, class_col, classes, 
             bg = _cfill("F7F9FB") if ri%2==1 else NO_FILL
             col = 2
             _sc(ws.cell(row,col), val=bin_labels[bi], fill=_cfill("EBF5FB"),
-                font=_fnt(bold=True,size=11,color="1A5276"), aln=_CTR); col+=1
+                font=_fnt(bold=True,size=11,color="1A5276"), aln=_CTR, bdr=THIN); col+=1
             _sc(ws.cell(row,col), val=f"{lo}–{hi}", fill=_cfill("EBF5FB"),
-                font=_fnt(size=11,color="1A5276"), aln=_CTR); col+=1
+                font=_fnt(size=11,color="1A5276"), aln=_CTR, bdr=THIN); col+=1
             for cls in classes:
                 s   = cls_raw[cls]
                 n_c = len(s)
@@ -427,15 +429,15 @@ def _make_distribution_sheet(wb, df, max_scores, paper_map, class_col, classes, 
                 above = int((s>hi+0.001).sum()) if n_c else 0
                 _, bg_hex, _ = palette[cls]
                 _sc(ws.cell(row,col), val=f"{cnt} ({cnt/n_c:.0%})" if n_c else "-",
-                    fill=bg, font=_fnt(size=12), aln=_CTR); col+=1
+                    fill=bg, font=_fnt(size=12), aln=_CTR, bdr=THIN); col+=1
                 _sc(ws.cell(row,col), val=f"{above} ({above/n_c:.0%})" if n_c else "-",
-                    fill=bg, font=_fnt(size=12), aln=_CTR); col+=1
+                    fill=bg, font=_fnt(size=12), aln=_CTR, bdr=THIN); col+=1
             cnt_a   = int(((raw_series>=lo-0.001)&(raw_series<=hi+0.001)).sum())
             above_a = int((raw_series>hi+0.001).sum())
             _sc(ws.cell(row,col), val=f"{cnt_a} ({cnt_a/n_all:.0%})",
-                fill=_cfill("F2F3F4"), font=_fnt(bold=True,size=11,color="3D4E5C"), aln=_CTR); col+=1
+                fill=_cfill("F2F3F4"), font=_fnt(bold=True,size=11,color="3D4E5C"), aln=_CTR, bdr=THIN); col+=1
             _sc(ws.cell(row,col), val=f"{above_a} ({above_a/n_all:.0%})",
-                fill=_cfill("F2F3F4"), font=_fnt(bold=True,size=11,color="3D4E5C"), aln=_CTR)
+                fill=_cfill("F2F3F4"), font=_fnt(bold=True,size=11,color="3D4E5C"), aln=_CTR, bdr=THIN)
         cur_row += len(bin_labels)
 
         ws.row_dimensions[cur_row].height = 20
@@ -515,19 +517,20 @@ def _make_heatmap_sheet(wb, class_stats, grade_stats, classes, q_cols, paper_map
 
     # ── 行4：標題列 ──
     ws.row_dimensions[4].height = 20
+    THIN_H = _thin_border("BBBBBB")
     _sc(ws.cell(4,2), val="試卷", fill=_cfill("D6E4F7"),
-        font=_hdr_fnt(bold=True, size=11, color="1F3864"), aln=_CTR)
+        font=_hdr_fnt(bold=True, size=11, color="1F3864"), aln=_CTR, bdr=THIN_H)
     _sc(ws.cell(4,3), val="題號", fill=_cfill("D6E4F7"),
-        font=_hdr_fnt(bold=True, size=11, color="1F3864"), aln=_CTR)
+        font=_hdr_fnt(bold=True, size=11, color="1F3864"), aln=_CTR, bdr=THIN_H)
 
     # 各班標題色（固定配色，對齊範本）
     for i, cls in enumerate(classes):
         hf, _ = HEATMAP_HEADER_FILLS[i % len(HEATMAP_HEADER_FILLS)]
         _sc(ws.cell(4, 4+i), val=cls, fill=_cfill(hf),
-            font=_hdr_fnt(bold=True, size=11, color="FFFFFF"), aln=_CTR)
+            font=_hdr_fnt(bold=True, size=11, color="FFFFFF"), aln=_CTR, bdr=THIN_H)
     # 全級標題
     _sc(ws.cell(4, 4+n_cls), val="全級",
-        fill=_cfill("FFF2CC"), font=_hdr_fnt(bold=True, size=11, color="7F4F00"), aln=_CTR)
+        fill=_cfill("FFF2CC"), font=_hdr_fnt(bold=True, size=11, color="7F4F00"), aln=_CTR, bdr=THIN_H)
 
     # ── 數據行 ──
     prev_paper = None
@@ -538,8 +541,11 @@ def _make_heatmap_sheet(wb, class_stats, grade_stats, classes, q_cols, paper_map
         # 試卷分組行（首次出現合拼試卷格）
         if paper != prev_paper:
             ws.row_dimensions[row].height = 14
+            # 試卷標題行橫跨所有欄
+            for ci2 in range(2, 4+n_cls+1):
+                ws.cell(row, ci2).border = THIN_H
             _sc(ws.cell(row, 2), val=paper, fill=_cfill("2E75B6"),
-                font=_hdr_fnt(bold=True, size=11, color="FFFFFF"), aln=_CTR)
+                font=_hdr_fnt(bold=True, size=11, color="FFFFFF"), aln=_CTR, bdr=THIN_H)
             prev_paper = paper
 
         ws.row_dimensions[row].height = 17
@@ -558,26 +564,36 @@ def _make_heatmap_sheet(wb, class_stats, grade_stats, classes, q_cols, paper_map
         all_pcts = pcts + [grade_pct]
         mn2, mx2 = min(all_pcts), max(all_pcts)
 
+        THIN_H = _thin_border("BBBBBB")
         for i, cls in enumerate(classes):
             pct = pcts[i]
             t   = (pct - mn2)/(mx2 - mn2) if mx2 > mn2 else 0.5
-            # 深紅(0) → 黃(0.5) → 深綠(1)
+            t   = max(0.0, min(1.0, t))
+            # 清晰三段：深紅(0) → 白/淡黃(0.5) → 深綠(1)
             if t < 0.5:
-                t2 = t * 2
-                r2 = int(192 + (1-t2)*63); g2 = int(t2*192); b2 = int(t2*50)
+                t2   = t * 2                        # 0→1
+                r2   = int(198 + (1-t2)*57)         # 255→198
+                g2   = int(t2 * 175)                # 0→175
+                b2   = int(t2 * 80)                 # 0→80
             else:
-                t2 = (t-0.5)*2
-                r2 = int((1-t2)*192); g2 = int(192 - t2*30); b2 = int(50 + t2*20)
+                t2   = (t - 0.5) * 2               # 0→1
+                r2   = int(198 * (1-t2))            # 198→0
+                g2   = int(175 + t2 * 55)           # 175→230
+                b2   = int(80  + t2 * 20)           # 80→100
             r2 = max(0,min(255,r2)); g2=max(0,min(255,g2)); b2=max(0,min(255,b2))
-            hex_bg   = f"{r2:02X}{g2:02X}{b2:02X}"
-            txt_col  = "FFFFFF" if t < 0.3 or t > 0.75 else "1A1A1A"
+            hex_bg  = f"{r2:02X}{g2:02X}{b2:02X}"
+            # 文字顏色：背景深時用白，背景淡時用深色
+            lum = 0.299*r2 + 0.587*g2 + 0.114*b2
+            txt_col = "FFFFFF" if lum < 140 else "1A1A1A"
             _sc(ws.cell(row, 4+i), val=pct, fill=_cfill(hex_bg),
-                font=_fnt(size=11, color=txt_col), aln=_CTR, fmt="0.0%")
+                font=_fnt(size=11, color=txt_col), aln=_CTR, fmt="0.0%", bdr=THIN_H)
 
         # 全級欄
         _sc(ws.cell(row, 4+n_cls), val=grade_pct,
             fill=_cfill("FFF2CC"), font=_fnt(bold=True, size=11, color="7F4F00"),
-            aln=_CTR, fmt="0.0%")
+            aln=_CTR, fmt="0.0%", bdr=THIN_H)
+        # 題號欄框線
+        ws.cell(row, 3).border = THIN_H
         row += 1
 
     # ── 欄寬（對齊範本v12）──
