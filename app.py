@@ -1247,34 +1247,32 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                                 st.info("PDF 需 LibreOffice（packages.txt）")
 
 # ══════════════════════════════════════════════════════════════
-# 📊 班際分析頁面
+# 班際分析頁面
 # ══════════════════════════════════════════════════════════════
 elif page == "📊 班際分析":
-    st.markdown('<div class="main-header">📊 班際分析</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">比較各班級的試題表現，找出班際差異與共同強弱項</div>', unsafe_allow_html=True)
+    st.markdown('''<div class="main-header">班際分析</div>
+<div class="sub-header">上載分數記錄表，比較各班試題表現，生成班際比較分析報告</div>''',
+                unsafe_allow_html=True)
 
-    # ── 功能介紹與使用步驟 ──
     st.markdown("""
-    <div style="background:#EEF4FF;border-left:4px solid #1F4788;padding:14px 18px;
-                border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
-        <b>📋 功能說明</b><br>
-        本功能根據含有<b>班別資訊</b>的成績 Excel，自動產生跨班比較分析報告，包含：<br>
-        &nbsp;&nbsp;• 各班逐題平均分與得分率（附與全級比較）<br>
-        &nbsp;&nbsp;• 各試卷總分分佈對比（含及格率、平均分、標準差）<br>
-        &nbsp;&nbsp;• 各班各題得分率熱力圖<br><br>
-        <b>📥 資料來源（二選一）</b><br>
-        &nbsp;&nbsp;<b>方法一：</b>自動沿用「試卷分析」頁已上載的成績資料（免重複上載）<br>
-        &nbsp;&nbsp;<b>方法二：</b>直接在本頁上載新的 scores.xlsx<br><br>
-        <b>📌 使用步驟</b><br>
-        &nbsp;&nbsp;<b>Step 1</b>&nbsp; 選擇資料來源方式<br>
-        &nbsp;&nbsp;<b>Step 2</b>&nbsp; 確認已載入資料（顯示班別及學生人數）<br>
-        &nbsp;&nbsp;<b>Step 3</b>&nbsp; 按「🚀 生成班際分析」按鈕<br>
-        &nbsp;&nbsp;<b>Step 4</b>&nbsp; 預覽各班摘要並下載 Excel 班際分析報告
-    </div>
-    """, unsafe_allow_html=True)
+<div style="background:#EEF4FF;border-left:4px solid #1F4788;padding:14px 18px;
+border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
+<b>功能</b>：根據含有班別資訊的分數記錄表，自動產生跨班比較分析報告，包含各班逐題得分率、分數分佈對比及熱力圖。<br><br>
+<b>資料來源（二選一）</b><br>
+方法一：自動沿用「試卷分析」頁已上載的成績資料，毋須重複上載<br>
+方法二：直接在本頁上載新的分數記錄表（scores.xlsx）<br><br>
+<b>使用步驟</b><br>
+①&nbsp;選擇資料來源 — 方法一（沿用試卷分析資料）或方法二（直接上載）<br>
+②&nbsp;確認已載入資料 — 系統顯示班別及學生人數<br>
+③&nbsp;開始分析 — 點擊「生成班際分析」，系統自動完成計算<br>
+④&nbsp;下載報告 — 下載 Excel 班際分析報告<br><br>
+<b>下載內容</b>&nbsp;&nbsp;
+📊 Excel 班際分析報告（含各班工作表、分數分佈、熱力圖）
+</div>
+""", unsafe_allow_html=True)
 
     # ── Step 1：選擇資料來源 ──
-    st.markdown("### Step 1　選擇資料來源")
+    st.markdown("### ① 選擇資料來源")
 
     _ss = st.session_state
     _has_exam_data = _ss.get("analysis_done", False) and _ss.get("df") is not None
@@ -1282,8 +1280,8 @@ elif page == "📊 班際分析":
     _src_options = []
     if _has_exam_data:
         _exam_title_hint = _ss.get("exam_title", "（已載入）")
-        _src_options.append(f"✅ 方法一：使用「試卷分析」已載入的資料（{_exam_title_hint}）")
-    _src_options.append("📂 方法二：在本頁直接上載 scores.xlsx")
+        _src_options.append(f"方法一：使用「試卷分析」已載入的資料（{_exam_title_hint}）")
+    _src_options.append("方法二：在本頁直接上載 scores.xlsx")
 
     _data_source = st.radio(
         "請選擇資料來源",
@@ -1292,10 +1290,10 @@ elif page == "📊 班際分析":
         key="cia_src_radio"
     )
 
-    _use_session = _has_exam_data and _data_source.startswith("✅")
+    _use_session = _has_exam_data and _data_source.startswith("方法一")
 
     # ── Step 2：取得資料 ──
-    st.markdown("### Step 2　確認載入資料")
+    st.markdown("### ② 確認載入資料")
 
     _cia_df         = None
     _cia_max_scores = None
@@ -1312,14 +1310,15 @@ elif page == "📊 班際分析":
         _cia_exam_info  = _ss.get("exam_info")
         _cia_absent_set = _ss.get("absent_set", set())
 
-        _classes   = sorted(_cia_class_info["班別"].astype(str).unique()) if _cia_class_info is not None and len(_cia_class_info) else []
+        _classes    = sorted(_cia_class_info["班別"].astype(str).unique()) if _cia_class_info is not None and len(_cia_class_info) else []
         _n_students = len(_cia_df) if _cia_df is not None else 0
         st.markdown(
-            f'<div class="success-box">✅ 已沿用「試卷分析」資料　｜　'
+            f'<div class="success-box">已沿用「試卷分析」資料　｜　'
             f'共 <b>{_n_students}</b> 名學生　｜　班別：<b>{"、".join(_classes) if _classes else "（未偵測）"}</b></div>',
             unsafe_allow_html=True
         )
     else:
+        st.markdown("**方法二：上載分數記錄表**")
         _cia_uploaded = st.file_uploader(
             "上載成績 Excel（scores.xlsx）",
             type="xlsx",
@@ -1342,8 +1341,8 @@ elif page == "📊 班際分析":
                     "pass_rate":       0.4,
                 })
                 st.markdown(
-                    f'<div class="success-box">✅ 已成功載入　｜　'
-                    f'共 <b>{_n_students}</b> 名學生　｜　班別：<b>{"、".join(_classes) if _classes else "（未偵測）"}</b></div>',
+                    f'<div class="success-box">成功載入：共 <b>{_n_students}</b> 名學生　｜　'
+                    f'班別：<b>{"、".join(_classes) if _classes else "（未偵測）"}</b></div>',
                     unsafe_allow_html=True
                 )
             except Exception as _e:
@@ -1355,31 +1354,31 @@ elif page == "📊 班際分析":
         _classes = sorted(_cia_class_info["班別"].astype(str).unique())
         if len(_classes) < 2:
             st.markdown(
-                '<div class="warn-box">⚠️ 偵測到少於 2 個班別，班際分析需要至少 2 個班別的資料。</div>',
+                '<div class="warn-box">偵測到少於 2 個班別，班際分析需要至少 2 個班別的資料。</div>',
                 unsafe_allow_html=True
             )
-        with st.expander("👀 預覽班級名冊", expanded=False):
+        with st.expander("預覽班級名冊", expanded=False):
             st.dataframe(_cia_class_info, use_container_width=True)
 
     # ── Step 3：生成 ──
-    st.markdown("### Step 3　生成班際分析")
+    st.markdown("### ③ 開始分析")
 
     _col_btn, _col_reset = st.columns([3, 1])
     with _col_btn:
         _gen_btn = st.button(
-            "🚀 生成班際分析",
+            "生成班際分析",
             type="primary",
             use_container_width=True,
             disabled=(_cia_df is None)
         )
     with _col_reset:
-        if st.button("🔄 重置", use_container_width=True, key="cia_reset"):
+        if st.button("重新上載", use_container_width=True, key="cia_reset"):
             for _k in ["cia_excel_bytes", "cia_file_prefix"]:
                 _ss.pop(_k, None)
             st.rerun()
 
     if _gen_btn and _cia_df is not None:
-        with st.spinner("⏳ 正在生成班際分析報告…"):
+        with st.spinner("分析中，請稍候..."):
             try:
                 _exam_info_for_cia = _cia_exam_info or {}
                 _cia_excel = cia.generate_class_analysis_excel(
@@ -1392,7 +1391,7 @@ elif page == "📊 班際分析":
                 _file_prefix = _exam_info_for_cia.get("file_prefix", "班際分析")
                 _ss["cia_excel_bytes"] = _cia_excel
                 _ss["cia_file_prefix"] = _file_prefix
-                st.success("✅ 班際分析報告已生成！")
+                st.success("✅ 分析完成！報告已就緒，可直接下載。")
             except Exception as _e:
                 import traceback as _tb
                 st.error(f"生成失敗：{_e}")
@@ -1400,19 +1399,19 @@ elif page == "📊 班際分析":
 
     # ── Step 4：預覽 & 下載 ──
     if _ss.get("cia_excel_bytes"):
-        st.markdown("### Step 4　下載報告")
+        st.markdown("### ④ 下載報告")
 
         if _cia_df is not None and _cia_class_info is not None and _cia_max_scores is not None and _cia_paper_map is not None:
             try:
                 _summary_df = cia.get_class_summary_df(_cia_df, _cia_max_scores, _cia_paper_map, _cia_class_info)
-                with st.expander("📋 各班成績摘要預覽", expanded=True):
+                with st.expander("各班成績摘要預覽", expanded=True):
                     st.dataframe(_summary_df, use_container_width=True)
             except Exception:
                 pass
 
         _dl_prefix = _ss.get("cia_file_prefix", "班際分析")
         st.download_button(
-            label="📥 下載班際分析 Excel",
+            label="下載班際分析 Excel",
             data=_ss["cia_excel_bytes"],
             file_name=f"{_dl_prefix}_班際分析.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1420,10 +1419,10 @@ elif page == "📊 班際分析":
             use_container_width=True,
         )
         st.markdown("""
-        <div style="font-size:0.85em;color:#6B7A99;margin-top:8px;line-height:1.7">
-            📄 Excel 報告包含以下工作表：<br>
-            &nbsp;&nbsp;• <b>各班工作表</b>：逐題平均分、得分率及與全級比較（含趨勢條）<br>
-            &nbsp;&nbsp;• <b>分數分佈</b>：各分數段人數、及格率、平均分對比<br>
-            &nbsp;&nbsp;• <b>熱力圖</b>：各班各題得分率一覽（顏色深淺代表高低）
-        </div>
-        """, unsafe_allow_html=True)
+<div style="font-size:0.85em;color:#6B7A99;margin-top:8px;line-height:1.7">
+報告包含以下工作表：<br>
+&nbsp;&nbsp;• <b>各班工作表</b>：逐題平均分、得分率及與全級比較（含趨勢條）<br>
+&nbsp;&nbsp;• <b>分數分佈</b>：各分數段人數、及格率、平均分對比<br>
+&nbsp;&nbsp;• <b>熱力圖</b>：各班各題得分率一覽（顏色深淺代表高低）
+</div>
+""", unsafe_allow_html=True)
