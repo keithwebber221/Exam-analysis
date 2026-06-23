@@ -11,6 +11,7 @@ import io, os, sys, zipfile, tempfile, re
 sys.path.insert(0, os.path.dirname(__file__))
 import exam_item_analysis as ea
 import individual_report  as ir
+import class_item_analysis as cia  # ← 第二階段新增
 
 # ══════════════════════════════════════════════════════════════
 # 頁面設定
@@ -346,11 +347,7 @@ def load_data_from_bytes(file_bytes: bytes):
             mv = float(mv)
         except (TypeError, ValueError):
             mv = np.nan
-        # 扣分欄：欄名含「扣分」，滿分設為 0（負數貢獻，不計入滿分）
-        is_deduction = isinstance(c, str) and '扣分' in c
-        if is_deduction:
-            mv = 0.0
-        elif pd.isna(mv) or mv <= 0:
+        if pd.isna(mv) or mv <= 0:
             continue  # 跳過無效滿分欄
 
         # 取試卷標示
@@ -396,11 +393,6 @@ def load_data_from_bytes(file_bytes: bytes):
     score_data.index = student_raw["中文姓名"].values
     score_data.index.name = "姓名"
     score_data.fillna(0, inplace=True)
-
-    # 扣分欄：將正數轉為負數（輸入正數或負數均可，系統自動取負）
-    deduction_cols = [fn for fn in score_data.columns if '扣分' in str(fn)]
-    for dc in deduction_cols:
-        score_data[dc] = -score_data[dc].abs()
 
     # class_info
     ci = pd.DataFrame()
@@ -703,7 +695,7 @@ border-bottom:1px solid rgba(255,255,255,0.15);margin-bottom:10px;">
 
 page = st.sidebar.radio(
     "",
-    ["試卷分析", "成績追蹤"],
+    ["試卷分析", "班際分析", "成績追蹤"],
     label_visibility="collapsed"
 )
 
@@ -1019,6 +1011,71 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
             st.error(f"❌ 載入失敗：{e}")
             import traceback
             st.code(traceback.format_exc())
+
+
+# ══════════════════════════════════════════════════════════════
+# 頁面二：班際分析
+# ══════════════════════════════════════════════════════════════
+elif page == "班際分析":
+    st.markdown('''<div class="main-header">班際分析</div>
+<div class="sub-header">上載合併成績表，比較各班表現</div>''', unsafe_allow_html=True)
+
+    with st.expander("📁 上載成績檔案", expanded=True):
+        uploaded_file_cia = st.file_uploader(
+            "上載合併成績表（含班別欄）",
+            type=["xlsx"],
+            key="cia_uploader"
+        )
+        c1, c2, c3 = st.columns(3)
+        exam_title_cia  = c1.text_input("考試名稱", "2526_T1E", key="cia_title")
+        subject_cia     = c2.text_input("科目",     "科目",     key="cia_subject")
+        pass_rate_cia   = c3.number_input("及格率 (%)", 0, 100, 50, key="cia_pass")
+
+    if uploaded_file_cia is not None:
+        try:
+            file_bytes_cia = uploaded_file_cia.read()
+            score_data_cia, max_scores_cia, absent_set_cia, paper_map_cia, ci_cia = \
+                load_data_from_bytes(file_bytes_cia)
+
+            st.success(f"✅ 成功載入 {len(score_data_cia)} 名學生、{len(max_scores_cia)} 題", icon="✅")
+
+            # 確認有班別欄
+            if ci_cia is None or "班別" not in ci_cia.columns or ci_cia["班別"].nunique() < 2:
+                st.warning("⚠️ 未偵測到多班資料，請確認成績表包含班別欄且有至少兩個班別。")
+            else:
+                exam_info_cia = {
+                    "title":   exam_title_cia,
+                    "subject": subject_cia,
+                }
+                with st.spinner("正在進行班際分析…"):
+                    wb_bytes = cia.generate_class_analysis_excel(
+                        score_data_cia,
+                        max_scores_cia,
+                        paper_map_cia,
+                        ci_cia,
+                        exam_info_cia,
+                    )
+                st.success("✅ 班際分析完成！")
+
+                # 顯示摘要表格
+                summary_df = cia.get_class_summary_df(
+                    score_data_cia, max_scores_cia, paper_map_cia, ci_cia
+                )
+                st.markdown("#### 各班成績摘要")
+                st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+                st.download_button(
+                    label="📥 下載班際分析報告 (.xlsx)",
+                    data=wb_bytes,
+                    file_name=f"{exam_title_cia}_{subject_cia}_班際分析.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                )
+        except Exception:
+            st.error("❌ 分析失敗，請檢查檔案格式是否正確。")
+            import traceback
+            st.code(traceback.format_exc())
+
 
 
 # ══════════════════════════════════════════════════════════════
