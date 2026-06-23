@@ -11,7 +11,6 @@ import io, os, sys, zipfile, tempfile, re
 sys.path.insert(0, os.path.dirname(__file__))
 import exam_item_analysis as ea
 import individual_report  as ir
-import class_item_analysis as cia  # ← 第二階段新增
 
 # ══════════════════════════════════════════════════════════════
 # 頁面設定
@@ -695,7 +694,7 @@ border-bottom:1px solid rgba(255,255,255,0.15);margin-bottom:10px;">
 
 page = st.sidebar.radio(
     "",
-    ["試卷分析", "班際分析", "成績追蹤"],
+    ["試卷分析", "📊 班際分析", "成績追蹤"],
     label_visibility="collapsed"
 )
 
@@ -894,6 +893,12 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                 ss.scores_num     = scores_num
                 ss.file_prefix    = file_prefix
                 ss.exam_title     = exam_title
+                ss.df             = df
+                ss.max_scores     = max_scores
+                ss.paper_map      = paper_map
+                ss.class_info     = class_info
+                ss.exam_info      = exam_info
+                ss.absent_set     = absent_set
                 st.success("✅ 分析完成！所有報告已就緒，可直接下載。")
 
             # ── 顯示結果（從 session_state 讀取，不重新分析）──
@@ -1011,71 +1016,6 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
             st.error(f"❌ 載入失敗：{e}")
             import traceback
             st.code(traceback.format_exc())
-
-
-# ══════════════════════════════════════════════════════════════
-# 頁面二：班際分析
-# ══════════════════════════════════════════════════════════════
-elif page == "班際分析":
-    st.markdown('''<div class="main-header">班際分析</div>
-<div class="sub-header">上載合併成績表，比較各班表現</div>''', unsafe_allow_html=True)
-
-    with st.expander("📁 上載成績檔案", expanded=True):
-        uploaded_file_cia = st.file_uploader(
-            "上載合併成績表（含班別欄）",
-            type=["xlsx"],
-            key="cia_uploader"
-        )
-        c1, c2, c3 = st.columns(3)
-        exam_title_cia  = c1.text_input("考試名稱", "2526_T1E", key="cia_title")
-        subject_cia     = c2.text_input("科目",     "科目",     key="cia_subject")
-        pass_rate_cia   = c3.number_input("及格率 (%)", 0, 100, 50, key="cia_pass")
-
-    if uploaded_file_cia is not None:
-        try:
-            file_bytes_cia = uploaded_file_cia.read()
-            score_data_cia, max_scores_cia, absent_set_cia, paper_map_cia, ci_cia = \
-                load_data_from_bytes(file_bytes_cia)
-
-            st.success(f"✅ 成功載入 {len(score_data_cia)} 名學生、{len(max_scores_cia)} 題", icon="✅")
-
-            # 確認有班別欄
-            if ci_cia is None or "班別" not in ci_cia.columns or ci_cia["班別"].nunique() < 2:
-                st.warning("⚠️ 未偵測到多班資料，請確認成績表包含班別欄且有至少兩個班別。")
-            else:
-                exam_info_cia = {
-                    "title":   exam_title_cia,
-                    "subject": subject_cia,
-                }
-                with st.spinner("正在進行班際分析…"):
-                    wb_bytes = cia.generate_class_analysis_excel(
-                        score_data_cia,
-                        max_scores_cia,
-                        paper_map_cia,
-                        ci_cia,
-                        exam_info_cia,
-                    )
-                st.success("✅ 班際分析完成！")
-
-                # 顯示摘要表格
-                summary_df = cia.get_class_summary_df(
-                    score_data_cia, max_scores_cia, paper_map_cia, ci_cia
-                )
-                st.markdown("#### 各班成績摘要")
-                st.dataframe(summary_df, use_container_width=True, hide_index=True)
-
-                st.download_button(
-                    label="📥 下載班際分析報告 (.xlsx)",
-                    data=wb_bytes,
-                    file_name=f"{exam_title_cia}_{subject_cia}_班際分析.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                )
-        except Exception:
-            st.error("❌ 分析失敗，請檢查檔案格式是否正確。")
-            import traceback
-            st.code(traceback.format_exc())
-
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1305,3 +1245,185 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                                     use_container_width=True)
                             else:
                                 st.info("PDF 需 LibreOffice（packages.txt）")
+
+# ══════════════════════════════════════════════════════════════
+# 📊 班際分析頁面
+# ══════════════════════════════════════════════════════════════
+elif page == "📊 班際分析":
+    st.markdown('<div class="main-header">📊 班際分析</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">比較各班級的試題表現，找出班際差異與共同強弱項</div>', unsafe_allow_html=True)
+
+    # ── 功能介紹與使用步驟 ──
+    st.markdown("""
+    <div style="background:#EEF4FF;border-left:4px solid #1F4788;padding:14px 18px;
+                border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
+        <b>📋 功能說明</b><br>
+        本功能根據含有<b>班別資訊</b>的成績 Excel，自動產生跨班比較分析報告，包含：<br>
+        &nbsp;&nbsp;• 各班逐題平均分與得分率（附與全級比較）<br>
+        &nbsp;&nbsp;• 各試卷總分分佈對比（含及格率、平均分、標準差）<br>
+        &nbsp;&nbsp;• 各班各題得分率熱力圖<br><br>
+        <b>📥 資料來源（二選一）</b><br>
+        &nbsp;&nbsp;<b>方法一：</b>自動沿用「試卷分析」頁已上載的成績資料（免重複上載）<br>
+        &nbsp;&nbsp;<b>方法二：</b>直接在本頁上載新的 scores.xlsx<br><br>
+        <b>📌 使用步驟</b><br>
+        &nbsp;&nbsp;<b>Step 1</b>&nbsp; 選擇資料來源方式<br>
+        &nbsp;&nbsp;<b>Step 2</b>&nbsp; 確認已載入資料（顯示班別及學生人數）<br>
+        &nbsp;&nbsp;<b>Step 3</b>&nbsp; 按「🚀 生成班際分析」按鈕<br>
+        &nbsp;&nbsp;<b>Step 4</b>&nbsp; 預覽各班摘要並下載 Excel 班際分析報告
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Step 1：選擇資料來源 ──
+    st.markdown("### Step 1　選擇資料來源")
+
+    _ss = st.session_state
+    _has_exam_data = _ss.get("analysis_done", False) and _ss.get("df") is not None
+
+    _src_options = []
+    if _has_exam_data:
+        _exam_title_hint = _ss.get("exam_title", "（已載入）")
+        _src_options.append(f"✅ 方法一：使用「試卷分析」已載入的資料（{_exam_title_hint}）")
+    _src_options.append("📂 方法二：在本頁直接上載 scores.xlsx")
+
+    _data_source = st.radio(
+        "請選擇資料來源",
+        _src_options,
+        label_visibility="collapsed",
+        key="cia_src_radio"
+    )
+
+    _use_session = _has_exam_data and _data_source.startswith("✅")
+
+    # ── Step 2：取得資料 ──
+    st.markdown("### Step 2　確認載入資料")
+
+    _cia_df         = None
+    _cia_max_scores = None
+    _cia_paper_map  = None
+    _cia_class_info = None
+    _cia_exam_info  = None
+    _cia_absent_set = set()
+
+    if _use_session:
+        _cia_df         = _ss.get("df")
+        _cia_max_scores = _ss.get("max_scores")
+        _cia_paper_map  = _ss.get("paper_map")
+        _cia_class_info = _ss.get("class_info")
+        _cia_exam_info  = _ss.get("exam_info")
+        _cia_absent_set = _ss.get("absent_set", set())
+
+        _classes   = sorted(_cia_class_info["班別"].astype(str).unique()) if _cia_class_info is not None and len(_cia_class_info) else []
+        _n_students = len(_cia_df) if _cia_df is not None else 0
+        st.markdown(
+            f'<div class="success-box">✅ 已沿用「試卷分析」資料　｜　'
+            f'共 <b>{_n_students}</b> 名學生　｜　班別：<b>{"、".join(_classes) if _classes else "（未偵測）"}</b></div>',
+            unsafe_allow_html=True
+        )
+    else:
+        _cia_uploaded = st.file_uploader(
+            "上載成績 Excel（scores.xlsx）",
+            type="xlsx",
+            key="cia_uploader",
+            help="格式與「試卷分析」頁相同，須包含班別欄位"
+        )
+        if _cia_uploaded:
+            try:
+                _raw = _cia_uploaded.read()
+                _cia_df, _cia_max_scores, _cia_absent_set, _cia_paper_map, _cia_class_info = load_data_from_bytes(_raw)
+                _classes    = sorted(_cia_class_info["班別"].astype(str).unique()) if _cia_class_info is not None and len(_cia_class_info) else []
+                _n_students = len(_cia_df)
+                _cia_exam_info = _ss.get("exam_info", {
+                    "exam_title":      _cia_uploaded.name.replace(".xlsx", ""),
+                    "year_label":      "",
+                    "exam_type_label": "",
+                    "subject_label":   "",
+                    "form_label":      "",
+                    "file_prefix":     _cia_uploaded.name.replace(".xlsx", ""),
+                    "pass_rate":       0.4,
+                })
+                st.markdown(
+                    f'<div class="success-box">✅ 已成功載入　｜　'
+                    f'共 <b>{_n_students}</b> 名學生　｜　班別：<b>{"、".join(_classes) if _classes else "（未偵測）"}</b></div>',
+                    unsafe_allow_html=True
+                )
+            except Exception as _e:
+                st.error(f"載入失敗：{_e}")
+                _cia_df = None
+
+    # 班別數量警告 + 名冊預覽
+    if _cia_df is not None and _cia_class_info is not None:
+        _classes = sorted(_cia_class_info["班別"].astype(str).unique())
+        if len(_classes) < 2:
+            st.markdown(
+                '<div class="warn-box">⚠️ 偵測到少於 2 個班別，班際分析需要至少 2 個班別的資料。</div>',
+                unsafe_allow_html=True
+            )
+        with st.expander("👀 預覽班級名冊", expanded=False):
+            st.dataframe(_cia_class_info, use_container_width=True)
+
+    # ── Step 3：生成 ──
+    st.markdown("### Step 3　生成班際分析")
+
+    _col_btn, _col_reset = st.columns([3, 1])
+    with _col_btn:
+        _gen_btn = st.button(
+            "🚀 生成班際分析",
+            type="primary",
+            use_container_width=True,
+            disabled=(_cia_df is None)
+        )
+    with _col_reset:
+        if st.button("🔄 重置", use_container_width=True, key="cia_reset"):
+            for _k in ["cia_excel_bytes", "cia_file_prefix"]:
+                _ss.pop(_k, None)
+            st.rerun()
+
+    if _gen_btn and _cia_df is not None:
+        with st.spinner("⏳ 正在生成班際分析報告…"):
+            try:
+                _exam_info_for_cia = _cia_exam_info or {}
+                _cia_excel = cia.generate_class_analysis_excel(
+                    _cia_df,
+                    _cia_max_scores,
+                    _cia_paper_map,
+                    _cia_class_info,
+                    _exam_info_for_cia,
+                )
+                _file_prefix = _exam_info_for_cia.get("file_prefix", "班際分析")
+                _ss["cia_excel_bytes"] = _cia_excel
+                _ss["cia_file_prefix"] = _file_prefix
+                st.success("✅ 班際分析報告已生成！")
+            except Exception as _e:
+                import traceback as _tb
+                st.error(f"生成失敗：{_e}")
+                st.code(_tb.format_exc())
+
+    # ── Step 4：預覽 & 下載 ──
+    if _ss.get("cia_excel_bytes"):
+        st.markdown("### Step 4　下載報告")
+
+        if _cia_df is not None and _cia_class_info is not None and _cia_max_scores is not None and _cia_paper_map is not None:
+            try:
+                _summary_df = cia.get_class_summary_df(_cia_df, _cia_max_scores, _cia_paper_map, _cia_class_info)
+                with st.expander("📋 各班成績摘要預覽", expanded=True):
+                    st.dataframe(_summary_df, use_container_width=True)
+            except Exception:
+                pass
+
+        _dl_prefix = _ss.get("cia_file_prefix", "班際分析")
+        st.download_button(
+            label="📥 下載班際分析 Excel",
+            data=_ss["cia_excel_bytes"],
+            file_name=f"{_dl_prefix}_班際分析.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True,
+        )
+        st.markdown("""
+        <div style="font-size:0.85em;color:#6B7A99;margin-top:8px;line-height:1.7">
+            📄 Excel 報告包含以下工作表：<br>
+            &nbsp;&nbsp;• <b>各班工作表</b>：逐題平均分、得分率及與全級比較（含趨勢條）<br>
+            &nbsp;&nbsp;• <b>分數分佈</b>：各分數段人數、及格率、平均分對比<br>
+            &nbsp;&nbsp;• <b>熱力圖</b>：各班各題得分率一覽（顏色深淺代表高低）
+        </div>
+        """, unsafe_allow_html=True)
