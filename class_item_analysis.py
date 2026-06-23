@@ -199,8 +199,17 @@ def _compute_stats(df, q_cols, max_scores, paper_map, class_col):
 def _make_class_sheet(wb, cls, q_cols, max_scores, paper_map,
                       class_stats, grade_stats, df, class_col, palette):
     bar_hex, bg_hex, dark_hex = palette[cls]
-    other_classes = [c for c in sorted(class_col.unique()) if c != cls]
-    df_other = df[class_col != cls]
+    # "other" 固定為 B+C+D（即除最高能力班 classes[0] 以外的班別）
+    # 讓每班的比較基準一致：本班 vs 平均班合拼
+    all_classes     = sorted(class_col.unique().tolist())
+    elite_cls       = all_classes[0]   # 能力最高班（A班），字母序最小
+    average_classes = [c for c in all_classes if c != elite_cls]  # B+C+D
+
+    # "other" = 固定 B+C+D 全體合拼（無論本班是哪班）
+    # 對 A班：比較對象是 B+C+D（即平均班整體）
+    # 對 B/C/D班：比較對象也是 B+C+D 整體（揭示本班在平均班中的位置）
+    other_classes = average_classes   # = [B, C, D]
+    df_other      = df[class_col.isin(other_classes)]
     other_stats = {}
     for q in q_cols:
         mx   = float(max_scores[q])
