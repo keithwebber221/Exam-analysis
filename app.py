@@ -1246,6 +1246,7 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                             else:
                                 st.info("PDF 需 LibreOffice（packages.txt）")
 
+
 # ══════════════════════════════════════════════════════════════
 # 班際分析頁面
 # ══════════════════════════════════════════════════════════════
