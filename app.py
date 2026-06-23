@@ -11,6 +11,7 @@ import io, os, sys, zipfile, tempfile, re
 sys.path.insert(0, os.path.dirname(__file__))
 import exam_item_analysis as ea
 import individual_report  as ir
+import class_item_analysis as cia
 
 # ══════════════════════════════════════════════════════════════
 # 頁面設定
