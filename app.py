@@ -694,7 +694,7 @@ border-bottom:1px solid rgba(255,255,255,0.15);margin-bottom:10px;">
 
 page = st.sidebar.radio(
     "",
-    ["試卷分析", "📊 班際分析", "成績追蹤"],
+    ["試卷分析", "班際分析", "成績追蹤"],
     label_visibility="collapsed"
 )
 
@@ -1250,7 +1250,7 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
 # ══════════════════════════════════════════════════════════════
 # 班際分析頁面
 # ══════════════════════════════════════════════════════════════
-elif page == "📊 班際分析":
+elif page == "班際分析":
     st.markdown('''<div class="main-header">班際分析</div>
 <div class="sub-header">上載分數記錄表，比較各班試題表現，生成班際比較分析報告</div>''',
                 unsafe_allow_html=True)
@@ -1278,20 +1278,23 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
     _ss = st.session_state
     _has_exam_data = _ss.get("analysis_done", False) and _ss.get("df") is not None
 
-    _src_options = []
     if _has_exam_data:
-        _exam_title_hint = _ss.get("exam_title", "（已載入）")
-        _src_options.append(f"方法一：使用「試卷分析」已載入的資料（{_exam_title_hint}）")
-    _src_options.append("方法二：在本頁直接上載 scores.xlsx")
+        _opt1 = f"方法一：使用「試卷分析」已載入的資料（{_ss.get('exam_title', '已載入')}）"
+    else:
+        _opt1 = "方法一：使用「試卷分析」已載入的資料（請先完成試卷分析）"
+    _opt2 = "方法二：在本頁直接上載 scores.xlsx"
 
     _data_source = st.radio(
         "請選擇資料來源",
-        _src_options,
+        [_opt1, _opt2],
         label_visibility="collapsed",
         key="cia_src_radio"
     )
 
-    _use_session = _has_exam_data and _data_source.startswith("方法一")
+    _use_session = _has_exam_data and _data_source == _opt1
+
+    if not _has_exam_data and _data_source == _opt1:
+        st.markdown('<div class="warn-box">請先到「試卷分析」頁完成分析，再使用方法一。</div>', unsafe_allow_html=True)
 
     # ── Step 2：取得資料 ──
     st.markdown("### ② 確認載入資料")
@@ -1310,15 +1313,13 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
         _cia_class_info = _ss.get("class_info")
         _cia_exam_info  = _ss.get("exam_info")
         _cia_absent_set = _ss.get("absent_set", set())
-
         _classes    = sorted(_cia_class_info["班別"].astype(str).unique()) if _cia_class_info is not None and len(_cia_class_info) else []
         _n_students = len(_cia_df) if _cia_df is not None else 0
         st.markdown(
-            f'<div class="success-box">已沿用「試卷分析」資料　｜　'
-            f'共 <b>{_n_students}</b> 名學生　｜　班別：<b>{"、".join(_classes) if _classes else "（未偵測）"}</b></div>',
+            f'<div class="success-box">已沿用「試卷分析」資料　｜　共 <b>{_n_students}</b> 名學生　｜　班別：<b>{"、".join(_classes) if _classes else "（未偵測）"}</b></div>',
             unsafe_allow_html=True
         )
-    else:
+    elif _data_source == _opt2:
         st.markdown("**方法二：上載分數記錄表**")
         _cia_uploaded = st.file_uploader(
             "上載成績 Excel（scores.xlsx）",
@@ -1333,45 +1334,32 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                 _classes    = sorted(_cia_class_info["班別"].astype(str).unique()) if _cia_class_info is not None and len(_cia_class_info) else []
                 _n_students = len(_cia_df)
                 _cia_exam_info = _ss.get("exam_info", {
-                    "exam_title":      _cia_uploaded.name.replace(".xlsx", ""),
-                    "year_label":      "",
-                    "exam_type_label": "",
-                    "subject_label":   "",
-                    "form_label":      "",
-                    "file_prefix":     _cia_uploaded.name.replace(".xlsx", ""),
-                    "pass_rate":       0.4,
+                    "exam_title":  _cia_uploaded.name.replace(".xlsx", ""),
+                    "year_label": "", "exam_type_label": "",
+                    "subject_label": "", "form_label": "",
+                    "file_prefix": _cia_uploaded.name.replace(".xlsx", ""),
+                    "pass_rate": 0.4,
                 })
                 st.markdown(
-                    f'<div class="success-box">成功載入：共 <b>{_n_students}</b> 名學生　｜　'
-                    f'班別：<b>{"、".join(_classes) if _classes else "（未偵測）"}</b></div>',
+                    f'<div class="success-box">成功載入：共 <b>{_n_students}</b> 名學生　｜　班別：<b>{"、".join(_classes) if _classes else "（未偵測）"}</b></div>',
                     unsafe_allow_html=True
                 )
             except Exception as _e:
                 st.error(f"載入失敗：{_e}")
                 _cia_df = None
 
-    # 班別數量警告 + 名冊預覽
     if _cia_df is not None and _cia_class_info is not None:
         _classes = sorted(_cia_class_info["班別"].astype(str).unique())
         if len(_classes) < 2:
-            st.markdown(
-                '<div class="warn-box">偵測到少於 2 個班別，班際分析需要至少 2 個班別的資料。</div>',
-                unsafe_allow_html=True
-            )
+            st.markdown('<div class="warn-box">偵測到少於 2 個班別，班際分析需要至少 2 個班別的資料。</div>', unsafe_allow_html=True)
         with st.expander("預覽班級名冊", expanded=False):
             st.dataframe(_cia_class_info, use_container_width=True)
 
     # ── Step 3：生成 ──
     st.markdown("### ③ 開始分析")
-
     _col_btn, _col_reset = st.columns([3, 1])
     with _col_btn:
-        _gen_btn = st.button(
-            "生成班際分析",
-            type="primary",
-            use_container_width=True,
-            disabled=(_cia_df is None)
-        )
+        _gen_btn = st.button("生成班際分析", type="primary", use_container_width=True, disabled=(_cia_df is None))
     with _col_reset:
         if st.button("重新上載", use_container_width=True, key="cia_reset"):
             for _k in ["cia_excel_bytes", "cia_file_prefix"]:
@@ -1383,12 +1371,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
             try:
                 _exam_info_for_cia = _cia_exam_info or {}
                 _cia_excel = cia.generate_class_analysis_excel(
-                    _cia_df,
-                    _cia_max_scores,
-                    _cia_paper_map,
-                    _cia_class_info,
-                    _exam_info_for_cia,
-                )
+                    _cia_df, _cia_max_scores, _cia_paper_map, _cia_class_info, _exam_info_for_cia)
                 _file_prefix = _exam_info_for_cia.get("file_prefix", "班際分析")
                 _ss["cia_excel_bytes"] = _cia_excel
                 _ss["cia_file_prefix"] = _file_prefix
@@ -1401,7 +1384,6 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
     # ── Step 4：預覽 & 下載 ──
     if _ss.get("cia_excel_bytes"):
         st.markdown("### ④ 下載報告")
-
         if _cia_df is not None and _cia_class_info is not None and _cia_max_scores is not None and _cia_paper_map is not None:
             try:
                 _summary_df = cia.get_class_summary_df(_cia_df, _cia_max_scores, _cia_paper_map, _cia_class_info)
@@ -1409,7 +1391,6 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                     st.dataframe(_summary_df, use_container_width=True)
             except Exception:
                 pass
-
         _dl_prefix = _ss.get("cia_file_prefix", "班際分析")
         st.download_button(
             label="下載班際分析 Excel",
