@@ -11,6 +11,7 @@ import io, os, sys, zipfile, tempfile, re
 sys.path.insert(0, os.path.dirname(__file__))
 import exam_item_analysis as ea
 import individual_report  as ir
+import class_text_report  as ctr
 import class_item_analysis as cia
 
 # ══════════════════════════════════════════════════════════════
@@ -900,6 +901,15 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                 ss.class_info     = class_info
                 ss.exam_info      = exam_info
                 ss.absent_set     = absent_set
+                try:
+                    ss.text_report_bytes = ctr.generate_text_report(
+                        df, max_scores, paper_map,
+                        class_info, exam_info, absent_set,
+                        item_df, group_df, student_df, stats_df
+                    )
+                except Exception as _ctr_e:
+                    ss.text_report_bytes = None
+                    st.warning(f"⚠️ 試卷分析報告生成失敗：{_ctr_e}")
                 st.success("✅ 分析完成！所有報告已就緒，可直接下載。")
 
             # ── 顯示結果（從 session_state 讀取，不重新分析）──
@@ -955,6 +965,8 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                     if ss.merged_pdf:
                         azf.writestr(f"{fp}_全班個人報告.pdf",  ss.merged_pdf)
                     azf.writestr(f"{fp}_圖表.zip",             ss.charts_png_zip)
+                    if ss.get("text_report_bytes"):
+                        azf.writestr(f"{fp}_試卷分析報告.docx", ss.text_report_bytes)
                 all_zip_buf.seek(0)
                 st.download_button(
                     "📦 一鍵下載全部檔案 ZIP",
@@ -989,6 +1001,18 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                         file_name=f"{fp}_圖表.zip",
                         mime="application/zip",
                         use_container_width=True)
+
+                # ── 試卷分析報告 ──
+                if ss.get("text_report_bytes"):
+                    st.download_button(
+                        label="📄 下載試卷分析報告 (Word)",
+                        data=ss.text_report_bytes,
+                        file_name=f"{fp}_試卷分析報告.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True,
+                    )
+                else:
+                    st.warning("⚠️ 試卷分析報告未能生成")
 
                 dl4, dl5 = st.columns(2)
                 with dl4:
@@ -1107,12 +1131,11 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.7">
                 try:
                     _result = cia.generate_class_analysis_from_uploads(
                         _m2_files, _exam_inf if _has_data else None)
-                    st.success(f"✅ 班際分析完成")
-                    _fp2 = "班際分析"
+                    st.success("✅ 班際分析完成")
                     st.download_button(
                         label="📥 下載班際分析報告 (Excel)",
                         data=_result,
-                        file_name=f"{_fp2}.xlsx",
+                        file_name="班際分析.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True,
                         type="primary",
