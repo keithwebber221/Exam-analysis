@@ -141,11 +141,20 @@ def _add_note_box(doc, label, body_lines,
 def _get_parent_q(q_name):
     parts = q_name.split("_", 1)
     if len(parts) < 2:
-        return q_name, q_name
+        # No paper prefix — single-paper mode
+        item = q_name
+        paper = "P1"
+        if "Part" in item or "part" in item:
+            return paper, "PartA（選擇題）"
+        # Match "Q1a" → "Q1",  "1a" → "1",  "Q10b" → "Q10",  "10b" → "10"
+        m = re.match(r"(Q?[\d/]+)", item)
+        if m:
+            return paper, m.group(1)
+        return paper, item
     paper, item = parts
     if "Part" in item or "part" in item:
         return paper, f"{paper}_PartA（選擇題）"
-    m = re.match(r"(Q[\d/]+)", item)
+    m = re.match(r"(Q?[\d/]+)", item)
     if m:
         return paper, f"{paper}_{m.group(1)}"
     return paper, f"{paper}_{item}"
@@ -170,12 +179,16 @@ def _build_group_stats(df, max_scores, paper_map, absent_set, total_scores):
         grp_rate   = grp_avg / grp_max * 100 if grp_max else 0
 
         diff = ("容易" if grp_rate >= 70 else "困難" if grp_rate < 40 else "適中")
-        display = parent.replace("P1_", "卷一 ").replace("P2_", "卷二 ").replace("P3_", "卷三 ").replace("P4_", "卷四 ")
+        # Clean up display name
+        display = parent
+        for prefix, label in [("P1_", ""), ("P2_", "卷二 "), ("P3_", "卷三 "), ("P4_", "卷四 ")]:
+            display = display.replace(prefix, label)
+        display = display.strip()
         rows.append({
             "parent": parent, "display": display,
             "qs": qs, "max": grp_max, "avg": round(grp_avg, 2),
             "rate": round(grp_rate, 1), "diff": diff,
-            "paper": qs[0].split("_")[0],
+            "paper": qs[0].split("_")[0] if "_" in qs[0] else "P1",
         })
 
     group_df2 = pd.DataFrame(rows).sort_values("rate", ascending=False)
@@ -368,13 +381,16 @@ def _build_group_analysis(doc, df, max_scores, paper_map, absent_set,
     rate_col  = "得分率%" if "得分率%" in item_df.columns else None
     papers_in = sorted(group_df2["paper"].unique())
 
+    multi_paper_mode = len(papers_in) > 1
+
     for paper_key in papers_in:
         label_map = {"P1": "卷一（Paper 1）", "P2": "卷二（Paper 2）",
                      "P3": "卷三（Paper 3）", "P4": "卷四（Paper 4）"}
-        paper_label = label_map.get(paper_key, paper_key)
-        _add_heading(doc, f"【{paper_label}】", level=2, color=(0, 0, 0))
+        if multi_paper_mode:
+            paper_label = label_map.get(paper_key, paper_key)
+            _add_heading(doc, f"【{paper_label}】", level=2, color=(0, 0, 0))
 
-        paper_rows = group_df2[group_df2["paper"] == paper_key].to_dict("records")
+        paper_rows = group_df2[group_df2["paper"] == paper_key].sort_values("parent").to_dict("records")
 
         for row in paper_rows:
             rate    = row["rate"];  delta   = rate - overall_rate
