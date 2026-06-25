@@ -42,7 +42,7 @@ def _no_page_break(p):
         pPr.append(el)
 
 
-def _add_heading(doc, text, level=1, color=(31, 71, 136)):
+def _add_heading(doc, text, level=1, color=(0, 0, 0)):
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(7 if level == 1 else 4)
     p.paragraph_format.space_after  = Pt(2)
@@ -198,7 +198,7 @@ def _build_cover(doc, exam_info):
     p.paragraph_format.space_after  = Pt(2)
     _no_page_break(p)
     r = p.add_run("全班試卷分析文字報告")
-    _set_font(r, 20, bold=True, color=(31, 71, 136))
+    _set_font(r, 20, bold=True, color=(0, 0, 0))
 
     p2 = doc.add_paragraph()
     p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -206,7 +206,7 @@ def _build_cover(doc, exam_info):
     p2.paragraph_format.space_after  = Pt(2)
     _no_page_break(p2)
     r2 = p2.add_run(f"{year_label}　{exam_type_label}　{form_label}　{subject_label}")
-    _set_font(r2, 11, color=(80, 80, 80))
+    _set_font(r2, 11, color=(0, 0, 0))
 
     _add_spacer(doc, 2)
     _add_divider(doc)
@@ -218,7 +218,7 @@ def _build_cover(doc, exam_info):
     r_toc = toc_p.add_run(
         "本報告共分五部分：一、試卷總覽　二、各題表現分析　三、大題分析　四、學生分層分析　五、後續跟進建議"
     )
-    _set_font(r_toc, 9.5, color=(100, 100, 100))
+    _set_font(r_toc, 9.5, color=(0, 0, 0))
 
     _add_spacer(doc, 2)
     _add_note_box(
@@ -267,7 +267,7 @@ def _build_overview(doc, exam_info, n_total, n_absent, n_present,
             cell.paragraphs[0].paragraph_format.space_after  = Pt(1)
             _no_page_break(cell.paragraphs[0])
             _set_font(run, 9.5, bold=(ci % 2 == 0),
-                      color=(31, 71, 136) if ci % 2 == 0 else (30, 30, 30))
+                      color=(0, 0, 0))
 
     _add_spacer(doc, 1)
 
@@ -372,7 +372,7 @@ def _build_group_analysis(doc, df, max_scores, paper_map, absent_set,
         label_map = {"P1": "卷一（Paper 1）", "P2": "卷二（Paper 2）",
                      "P3": "卷三（Paper 3）", "P4": "卷四（Paper 4）"}
         paper_label = label_map.get(paper_key, paper_key)
-        _add_heading(doc, f"【{paper_label}】", level=2, color=(31, 71, 136))
+        _add_heading(doc, f"【{paper_label}】", level=2, color=(0, 0, 0))
 
         paper_rows = group_df2[group_df2["paper"] == paper_key].to_dict("records")
 
@@ -426,7 +426,7 @@ def _build_group_analysis(doc, df, max_scores, paper_map, absent_set,
             p.paragraph_format.left_indent  = Cm(0.3)
             _no_page_break(p)
             r1 = p.add_run(f"{display}　");                _set_font(r1, 10.5, bold=True, color=rate_color)
-            r2 = p.add_run(f"滿分 {int(mx)} 分　平均 {avg:.1f} 分　得分率 {rate:.1f}%（{diff}）　"); _set_font(r2, 10.5, color=(50, 50, 50))
+            r2 = p.add_run(f"滿分 {int(mx)} 分　平均 {avg:.1f} 分　得分率 {rate:.1f}%（{diff}）　"); _set_font(r2, 10.5, color=(0, 0, 0))
             r3 = p.add_run(f"{delta_symbol} {abs(delta):.1f}pp（{"高於" if delta >= 0 else "低於"}全級平均 {overall_rate:.1f}%）"); _set_font(r3, 10.5, bold=True, color=delta_color)
 
             # Line 2: sub-question
@@ -437,7 +437,7 @@ def _build_group_analysis(doc, df, max_scores, paper_map, absent_set,
                 p_sub.paragraph_format.space_after  = Pt(0)
                 _no_page_break(p_sub)
                 r_sub = p_sub.add_run(f"各小題得分率：{"　".join(sub_parts)}")
-                _set_font(r_sub, 9.5, color=(100, 100, 100))
+                _set_font(r_sub, 9.5, color=(0, 0, 0))
 
             # Line 3: comment
             p_comm = doc.add_paragraph()
@@ -446,7 +446,7 @@ def _build_group_analysis(doc, df, max_scores, paper_map, absent_set,
             p_comm.paragraph_format.space_after  = Pt(5)
             _no_page_break(p_comm)
             r_comm = p_comm.add_run(f"▸ {comment}{weakness_str}")
-            _set_font(r_comm, 9.5, color=(70, 70, 70))
+            _set_font(r_comm, 9.5, color=(0, 0, 0))
 
     best_grp  = group_df2.iloc[0]
     worst_grp = group_df2.iloc[-1]
