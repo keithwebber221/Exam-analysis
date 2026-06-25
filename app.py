@@ -11,7 +11,6 @@ import io, os, sys, zipfile, tempfile, re
 sys.path.insert(0, os.path.dirname(__file__))
 import exam_item_analysis as ea
 import individual_report  as ir
-import class_text_report  as ctr
 import class_item_analysis as cia
 
 # ══════════════════════════════════════════════════════════════
@@ -901,15 +900,6 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                 ss.class_info     = class_info
                 ss.exam_info      = exam_info
                 ss.absent_set     = absent_set
-                try:
-                    ss.text_report_bytes = ctr.generate_text_report(
-                        df, max_scores, paper_map,
-                        class_info, exam_info, absent_set,
-                        item_df, group_df, student_df, stats_df
-                    )
-                except Exception as _ctr_e:
-                    ss.text_report_bytes = None
-                    st.warning(f"⚠️ 試卷分析報告生成失敗：{_ctr_e}")
                 st.success("✅ 分析完成！所有報告已就緒，可直接下載。")
 
             # ── 顯示結果（從 session_state 讀取，不重新分析）──
@@ -965,8 +955,6 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                     if ss.merged_pdf:
                         azf.writestr(f"{fp}_全班個人報告.pdf",  ss.merged_pdf)
                     azf.writestr(f"{fp}_圖表.zip",             ss.charts_png_zip)
-                    if ss.get("text_report_bytes"):
-                        azf.writestr(f"{fp}_試卷分析報告.docx", ss.text_report_bytes)
                 all_zip_buf.seek(0)
                 st.download_button(
                     "📦 一鍵下載全部檔案 ZIP",
@@ -1002,18 +990,6 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                         mime="application/zip",
                         use_container_width=True)
 
-                # ── 試卷分析報告 ──
-                if ss.get("text_report_bytes"):
-                    st.download_button(
-                        label="📄 試卷分析報告 (Word)",
-                        data=ss.text_report_bytes,
-                        file_name=f"{fp}_試卷分析報告.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        use_container_width=True,
-                    )
-                else:
-                    st.warning("⚠️ 試卷分析報告未能生成")
-
                 dl4, dl5 = st.columns(2)
                 with dl4:
                     if ss.pdf_zip:
@@ -1048,33 +1024,33 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
 # ══════════════════════════════════════════════════════════════
 elif page == "班際分析":
     st.markdown('''<div class="main-header">班際分析</div>
-<div class="sub-header">比較各班表現，生成班際分析 Excel 報告</div>''',
+<div class="sub-header">比較各班試題表現，生成班際分析 Excel 報告</div>''',
                 unsafe_allow_html=True)
 
     st.markdown("""
 <div style="background:#EEF4FF;border-left:4px solid #1F4788;padding:14px 18px;
 border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.7">
-<b>功能</b>：比較同一次考試各班的試題表現，生成包含各班試題分析、成績分佈及班際比較熱力圖的 Excel 報告。<br><br>
+<b>功能</b>：比較同一次考試不同班別的試題表現，並生成班際分析報告。<br><br>
 <b>使用步驟：</b><br>
-①&nbsp;在「試卷分析」頁面完成分析（成績表須包含<b>班別</b>欄位）<br>
-②&nbsp;返回此頁面，系統會自動讀取已分析的數據<br>
-③&nbsp;點擊「🚀 生成班際分析」按鈕<br>
-④&nbsp;下載報告<br><br>
+&nbsp;&nbsp;<b>方法一</b>（自動）：先在「試卷分析」完成分析，本頁會自動載入數據<br>
+&nbsp;&nbsp;<b>方法二</b>（手動）：直接上載 <code>analysis.xlsx</code> 檔案，系統自動識別班別<br><br>
+例如：<code>2526_T1E_F5_BAFS_analysis.xlsx</code><br><br>
 <b>下載內容：</b>
-📊 班際分析 Excel &nbsp;｜&nbsp; 各班試題分析工作表 &nbsp;｜&nbsp; 班際比較熱力圖 &nbsp;｜&nbsp; 成績分佈圖
+📊 班際分析 Excel &nbsp;｜&nbsp; 各班試題分析工作表 &nbsp;｜&nbsp; 班際比較熱力圖
 </div>
 """, unsafe_allow_html=True)
 
     _ss = st.session_state
+
+    # ── 方法一：自動從試卷分析載入 ──
+    st.markdown("### 方法一：自動載入（從試卷分析）")
     _has_data = (
         _ss.get("analysis_done") and
         _ss.get("df") is not None and
         _ss.get("class_info") is not None
     )
 
-    if not _has_data:
-        st.info("📋 請先在「試卷分析」頁面完成分析，並確保成績表包含班別資訊。")
-    else:
+    if _has_data:
         _df       = _ss.df
         _max_sc   = _ss.max_scores
         _paper_mp = _ss.paper_map
@@ -1083,43 +1059,68 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.7">
         _fp       = _ss.file_prefix
 
         if _cls_info is None or "班別" not in _cls_info.columns:
-            st.warning("⚠️ 成績表未包含班別資訊，無法進行班際分析。請確認上載的成績表含有【班別】欄位。")
+            st.warning("⚠️ 已載入的成績表不含班別資訊，請改用方法二。")
         else:
             _classes = sorted(_cls_info["班別"].astype(str).unique().tolist())
             st.markdown(f"**已偵測班別：** {' ｜ '.join(_classes)}　（共 {len(_classes)} 班）")
-
             if len(_classes) < 2:
-                st.info(f"ℹ️ 目前只有一個班別（{_classes[0]}），班際分析需要至少兩個班別。")
+                st.info(f"ℹ️ 只有一個班別（{_classes[0]}），班際分析需要至少兩個班別。")
             else:
-                col_btn, _ = st.columns([1, 3])
-                with col_btn:
-                    run_cia = st.button("🚀 生成班際分析", type="primary", use_container_width=True)
-
-                if run_cia or _ss.get("class_excel_bytes"):
+                if st.button("🚀 生成班際分析（方法一）", type="primary", key="cia_btn1"):
                     with st.spinner("生成班際分析報告中..."):
                         try:
-                            _class_excel = cia.generate_class_analysis_excel(
+                            _excel = cia.generate_class_analysis_excel(
                                 _df, _max_sc, _paper_mp, _cls_info, _exam_inf)
-                            _summary_df = cia.get_class_summary_df(
-                                _df, _max_sc, _paper_mp, _cls_info)
-                            _ss.class_excel_bytes = _class_excel
-
                             st.success(f"✅ 班際分析完成，共 {len(_classes)} 個班別")
-                            st.markdown("### 各班成績摘要")
-                            st.dataframe(_summary_df, use_container_width=True)
-
                             st.download_button(
                                 label="📥 下載班際分析報告 (Excel)",
-                                data=_class_excel,
+                                data=_excel,
                                 file_name=f"{_fp}_班際分析.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 use_container_width=True,
                                 type="primary",
                             )
-                        except Exception as _cia_e:
+                        except Exception as _e:
                             import traceback as _tb
-                            st.error(f"❌ 班際分析失敗：{_cia_e}")
+                            st.error(f"❌ 班際分析失敗：{_e}")
                             st.code(_tb.format_exc())
+    else:
+        st.info("📋 尚未在「試卷分析」頁面完成分析，方法一暫不可用。")
+
+    st.markdown("---")
+
+    # ── 方法二：手動上載 analysis.xlsx ──
+    st.markdown("### 方法二：手動上載 analysis.xlsx")
+    _m2_files = st.file_uploader(
+        "上載一個或多個 `analysis.xlsx` 檔案（每班一份）",
+        type="xlsx",
+        accept_multiple_files=True,
+        key="cia_upload_m2",
+        help="檔名格式：年度_考試_年級_科目_analysis.xlsx，例如 2526_T1E_F5A_BAFS_analysis.xlsx"
+    )
+    if _m2_files:
+        st.markdown(f"已上載 **{len(_m2_files)}** 個檔案：")
+        for _f in _m2_files:
+            st.caption(f"　• {_f.name}")
+        if st.button("🚀 生成班際分析（方法二）", type="primary", key="cia_btn2"):
+            with st.spinner("讀取檔案並生成班際分析..."):
+                try:
+                    _result = cia.generate_class_analysis_from_uploads(
+                        _m2_files, _exam_inf if _has_data else None)
+                    st.success(f"✅ 班際分析完成")
+                    _fp2 = "班際分析"
+                    st.download_button(
+                        label="📥 下載班際分析報告 (Excel)",
+                        data=_result,
+                        file_name=f"{_fp2}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        type="primary",
+                    )
+                except Exception as _e2:
+                    import traceback as _tb2
+                    st.error(f"❌ 班際分析失敗：{_e2}")
+                    st.code(_tb2.format_exc())
 
 # ══════════════════════════════════════════════════════════════
 # 頁面三：成績追蹤
