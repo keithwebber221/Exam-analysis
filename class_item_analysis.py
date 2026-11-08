@@ -197,18 +197,19 @@ def _compute_stats(df, q_cols, max_scores, paper_map, class_col):
 # 各班分析工作表
 # ══════════════════════════════════════════════════════════════
 def _make_class_sheet(wb, cls, q_cols, max_scores, paper_map,
-                      class_stats, grade_stats, df, class_col, palette):
+                      class_stats, grade_stats, df, class_col, palette, elite_classes=None):
     bar_hex, bg_hex, dark_hex = palette[cls]
-    # "other" 固定為 B+C+D（即除最高能力班 classes[0] 以外的班別）
-    # 讓每班的比較基準一致：本班 vs 平均班合拼
-    all_classes     = sorted(class_col.unique().tolist())
-    elite_cls       = all_classes[0]   # 能力最高班（A班），字母序最小
-    average_classes = [c for c in all_classes if c != elite_cls]  # B+C+D
-
-    # "other" = 固定 B+C+D 全體合拼（無論本班是哪班）
-    # 對 A班：比較對象是 B+C+D（即平均班整體）
-    # 對 B/C/D班：比較對象也是 B+C+D 整體（揭示本班在平均班中的位置）
-    other_classes = average_classes   # = [B, C, D]
+    # 全級 = 所有班別；其餘班別 = 全級扣除精英班（預設：班名以 A 結尾，如 5A）
+    # 可經 exam_info["elite_classes"] 覆寫；數據中若沒有精英班，
+    # 則改為「全級扣除本班」，避免本班與比較基準重疊
+    all_classes = sorted(class_col.unique().tolist())
+    elite_set   = set(elite_classes) if elite_classes else \
+                  {c for c in all_classes if str(c).strip().upper().endswith("A")}
+    if elite_set & set(all_classes):
+        other_classes = [c for c in all_classes if c not in elite_set]
+    else:
+        other_classes = [c for c in all_classes if c != cls]
+    grade_label = "+".join(all_classes)
     df_other      = df[class_col.isin(other_classes)]
     other_stats = {}
     for q in q_cols:
@@ -261,7 +262,7 @@ def _make_class_sheet(wb, cls, q_cols, max_scores, paper_map,
 
     headers = [
         (f"本班（{cls}）", dark_hex, bg_hex, dark_hex, ["人數","平均分","平均%","平均%圖表","S.D."], 5),
-        (f"全　級（{cls}+{other_label}）", "5D6A77", "EAECEE","3D4E5C",["平均分","平均%","平均%圖表","S.D."],       4),
+        (f"全　級（{grade_label}）", "5D6A77", "EAECEE","3D4E5C",["平均分","平均%","平均%圖表","S.D."],       4),
         ("本班 vs 全級",   "2C3E50", "D5F5E3","1E8449",["差距%","差距圖表"],                        2),
         (f"{other_label} 合拼","6C3483","F5EEF8","6C3483",["平均分","平均%","平均%圖表","S.D."],    4),
         (f"本班 vs {other_label}","6C3483","E8DAEF","6C3483",["差距%","差距圖表"],                  2),
@@ -639,7 +640,8 @@ def generate_class_analysis_excel(
 
     for cls in classes:
         _make_class_sheet(wb, cls, q_cols, max_scores, paper_map,
-                          class_stats, grade_stats, df, class_col, palette)
+                          class_stats, grade_stats, df, class_col, palette,
+                          elite_classes=exam_info.get("elite_classes") if exam_info else None)
     _make_distribution_sheet(wb, df, max_scores, paper_map, class_col, classes, palette)
     _make_heatmap_sheet(wb, class_stats, grade_stats, classes, q_cols, paper_map, palette)
 
