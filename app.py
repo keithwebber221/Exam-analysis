@@ -492,8 +492,7 @@ def _docx_batch_to_pdf(entries, chunk=60):
                 if os.path.exists(pp):
                     with open(pp, "rb") as fh:
                         out[key] = fh.read()
-    # 個別失敗的檔案再逐個重試
-    for key, b in entries:
+    for key, b in entries:          # 個別失敗的檔案再逐個重試
         if key not in out:
             pb = _docx_bytes_to_pdf_bytes(b)
             if pb:
@@ -501,19 +500,24 @@ def _docx_batch_to_pdf(entries, chunk=60):
     return out
 
 
+BW_SUFFIX = "_黑白列印版"
+
+
 def generate_reports_zip(df, max_scores, item_df, exam_info, class_info,
                           pass_rate, absent_set, gen_pdf=True, extras=None,
-                          paper_weights=None, paper_map=None):
+                          paper_weights=None, paper_map=None, gen_bw=True):
     """
-    生成個人報告。
+    生成個人報告（均不顯示排名）。
     單份試卷：每名學生一份個人報告。
     多份試卷：每名學生每卷一份個人報告 ＋ 一份總成績報告。
+    gen_bw=True 時，另生成一套黑白列印版。
     回傳：(docx_zip_bytes, pdf_zip_bytes, merged_pdfs)
-      merged_pdfs 為 {標籤: 全班合併PDF bytes}（可直接列印）；LibreOffice 不可用時為 None
+      merged_pdfs 為 {標籤: 全班合併PDF bytes}；LibreOffice 不可用時為 None
     """
     import multi_paper_reports as mpr
-    papers = sorted(set(paper_map.values())) if paper_map else ["P1"]
-    multi  = len(papers) > 1 and bool(paper_weights) and paper_map is not None
+    pm = paper_map if paper_map else {q: "P1" for q in df.columns}
+    papers = sorted(set(pm.values()))
+    multi  = len(papers) > 1 and bool(paper_weights)
 
     total_scores = _total_scores(df, extras)
     total_max    = int(max_scores.sum())
@@ -523,8 +527,12 @@ def generate_reports_zip(df, max_scores, item_df, exam_info, class_info,
         _present  = total_scores[~total_scores.index.isin(absent_set)]
         class_avg = float(_present.mean()) if len(_present) else class_avg
 
-    T = mpr.compute_tables(df, max_scores, paper_map, paper_weights, extras, absent_set) if multi else None
-    groups = [f"{p}個人報告" for p in papers] + ["總成績報告"] if multi else ["個人報告"]
+    T = mpr.compute_tables(df, max_scores, pm, paper_weights if multi else {"P1": 1.0},
+                           extras, absent_set) if (multi or gen_bw) else None
+    base_groups = [f"{p}個人報告" for p in papers] + ["總成績報告"] if multi else ["個人報告"]
+    variants = [(g, False) for g in base_groups]
+    if gen_bw:
+        variants += [(g + BW_SUFFIX, True) for g in base_groups]
 
     class_info_dict = {}
     if class_info is not None and len(class_info):
@@ -547,29 +555,35 @@ def generate_reports_zip(df, max_scores, item_df, exam_info, class_info,
         stem = f"{class_code}{class_num_int:02d}{student_name}"
         absent = student_name in absent_set
 
-        if not multi:
-            doc = (mpr.absent_doc() if absent else ir.create_personal_report_v2_4(
-                student_name, total_scores[student_name], total_max,
-                df.loc[student_name], max_scores, item_df,
-                exam_info, class_avg, total_max, class_info, pass_rate))
-            docx_entries.append((groups[0], f"{stem}_個人報告", _bytes(doc)))
-            continue
+        for g, bw in variants:
+            base_g = g[:-len(BW_SUFFIX)] if bw else g
+            sfx = BW_SUFFIX if bw else ""
+            if not multi:
+                if absent:
+                    doc = mpr.absent_doc(bw=bw)
+                elif bw:
+                    doc = mpr.build_paper_report(student_name, papers[0], T, df, max_scores, pm,
+                                                 extras, exam_info, class_info, pass_rate,
+                                                 bw=True, single=True)
+                else:
+                    doc = ir.create_personal_report_v2_4(
+                        student_name, total_scores[student_name], total_max,
+                        df.loc[student_name], max_scores, item_df,
+                        exam_info, class_avg, total_max, class_info, pass_rate)
+            elif base_g == "總成績報告":
+                doc = (mpr.absent_doc("總成績", bw=bw) if absent else mpr.build_total_report(
+                    student_name, T, df, extras, exam_info, class_info, pass_rate, bw=bw))
+            else:
+                p = base_g[:-len("個人報告")]
+                doc = (mpr.absent_doc(p, bw=bw) if absent else mpr.build_paper_report(
+                    student_name, p, T, df, max_scores, pm, extras,
+                    exam_info, class_info, pass_rate, item_df, bw=bw))
+            docx_entries.append((g, f"{stem}_{base_g}{sfx}", _bytes(doc)))
 
-        for p in papers:
-            g = f"{p}個人報告"
-            doc = (mpr.absent_doc(p) if absent else mpr.build_paper_report(
-                student_name, p, T, df, max_scores, paper_map, extras,
-                exam_info, class_info, pass_rate, item_df))
-            docx_entries.append((g, f"{stem}_{g}", _bytes(doc)))
-        doc = (mpr.absent_doc("總成績") if absent else mpr.build_total_report(
-            student_name, T, df, extras, exam_info, class_info, pass_rate))
-        docx_entries.append(("總成績報告", f"{stem}_總成績報告", _bytes(doc)))
-
-    # Word ZIP（多卷時分資料夾）
     docx_buf = io.BytesIO()
     with zipfile.ZipFile(docx_buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for g, fb, db in docx_entries:
-            zf.writestr(f"{g}/{fb}.docx" if multi else f"{fb}.docx", db)
+            zf.writestr(f"{g}/{fb}.docx", db)
     docx_buf.seek(0)
     docx_zip = docx_buf.read()
 
@@ -581,11 +595,11 @@ def generate_reports_zip(df, max_scores, item_df, exam_info, class_info,
             with zipfile.ZipFile(pdf_buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 for g, fb, _ in docx_entries:
                     if (g, fb) in pdfs:
-                        zf.writestr(f"{g}/{fb}.pdf" if multi else f"{fb}.pdf", pdfs[(g, fb)])
+                        zf.writestr(f"{g}/{fb}.pdf", pdfs[(g, fb)])
             pdf_buf.seek(0)
             pdf_zip = pdf_buf.read()
             merged_pdf = {}
-            for g in groups:
+            for g, _bw in variants:
                 lst = [pdfs[(gg, fb)] for gg, fb, _ in docx_entries if gg == g and (gg, fb) in pdfs]
                 if lst:
                     try:
@@ -694,7 +708,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
         form_label  = st.selectbox("年級", ["F1","F2","F3","F4","F5","F6"])
         subject_label = st.text_input("科目（如 BAFS）", value="BAFS")
     with col3:
-        pass_rate_pct = st.selectbox("及格線", ["40%（高中）","50%（初中）"])
+        pass_rate_pct = st.selectbox("合格線", ["40%（高中）","50%（初中）"])
         pass_rate = 0.4 if "40" in pass_rate_pct else 0.5
 
     # 試卷設定
@@ -779,6 +793,8 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
             st.markdown("### 開始分析")
 
             # ── 分析按鈕（結果存入 session_state，避免重複分析）──
+            gen_bw = st.checkbox("🖨️ 同時生成黑白列印版個人報告（灰階圖表，適合黑白打印機）", value=True,
+                                 help="取消勾選可縮短生成時間（約減少一半）")
             col_btn, col_reset = st.columns([3, 1])
             with col_btn:
                 analyze_btn = st.button("🚀 開始分析", type="primary", use_container_width=True)
@@ -801,6 +817,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                         paper_weights=paper_weights, paper_pct=paper_pct,
                         weighted_scores=weighted_scores, num_papers=num_papers,
                         paper_map=paper_map, extras=extras)
+                    stats_df["統計項目"] = stats_df["統計項目"].astype(str).str.replace("\u4e0d\u53ca\u683c", "不合格").str.replace("\u53ca\u683c", "合格")  # 及格→合格
                     group_df   = ea.question_group_analysis(df.copy(), max_scores, item_df,
                                                              extras=extras, absent_set=absent_set)
                     mc_df      = ea.mc_option_analysis(extras, absent_set, index=df.index)
@@ -811,7 +828,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                     docx_zip, pdf_zip, merged_pdf = generate_reports_zip(
                         df, max_scores, item_df, exam_info,
                         class_info, pass_rate, absent_set, gen_pdf=True, extras=extras,
-                        paper_weights=paper_weights, paper_map=paper_map)
+                        paper_weights=paper_weights, paper_map=paper_map, gen_bw=gen_bw)
 
                 # 計算圖表資料（供 Plotly 互動顯示用）
                 item_plot = item_df.copy()
@@ -879,7 +896,8 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                     ss.text_report_bytes = ctr.generate_text_report(
                         df, max_scores, paper_map,
                         class_info, exam_info, absent_set,
-                        item_df, group_df, student_df, stats_df
+                        item_df, group_df, student_df, stats_df,
+                        extras=extras
                     )
                 except Exception as _ctr_e:
                     ss.text_report_bytes = None
@@ -1113,7 +1131,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.7">
             _form = st.selectbox("年級", ["F1","F2","F3","F4","F5","F6"], key="cia_form")
             _subj = st.text_input("科目", value="BAFS", key="cia_subj")
         with _c3:
-            _pr_pct = st.selectbox("及格線", ["40%","50%"], key="cia_pr")
+            _pr_pct = st.selectbox("合格線", ["40%","50%"], key="cia_pr")
             _pr     = 0.4 if "40" in _pr_pct else 0.5
 
         EXAM_CODES2 = EXAM_TYPES
@@ -1228,7 +1246,7 @@ elif page == "成績追蹤":
 border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.7">
 <b>功能</b>：上載多次考試的分析報告，追蹤學生跨試成績趨勢，並生成追蹤報告。<br><br>
 <b>使用步驟：</b><br>
-①&nbsp;設定科目及及格線 — 填寫科目名稱，選擇及格標準<br>
+①&nbsp;設定科目及合格線 — 填寫科目名稱，選擇合格標準<br>
 ②&nbsp;上載分析報告 — 選擇由「試卷分析」生成的分析報告（可多選）<br>
 &nbsp;&nbsp;&nbsp;&nbsp;檔名格式：<code>年度_考試類別_年級_科目_analysis.xlsx</code>
 &nbsp;&nbsp;例如：<code>2526_T1E_F5_BAFS_analysis.xlsx</code><br>
@@ -1248,7 +1266,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.7">
     col1, col2 = st.columns(2)
     with col1:
         track_subject  = st.text_input("科目名稱", value="BAFS")
-        track_pass_pct = st.selectbox("及格線", ["40%（高中）","50%（初中）"], key="tp")
+        track_pass_pct = st.selectbox("合格線", ["40%（高中）","50%（初中）"], key="tp")
         track_pass_rate = 0.4 if "40" in track_pass_pct else 0.5
     with col2:
         st.markdown("**分析檔案命名規則**")

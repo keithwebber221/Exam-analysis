@@ -160,22 +160,38 @@ def _get_parent_q(q_name):
     return paper, f"{paper}_{item}"
 
 
-def _build_group_stats(df, max_scores, paper_map, absent_set, total_scores):
-    """Build parent-question group statistics."""
+def _build_group_stats(df, max_scores, paper_map, absent_set, total_scores,
+                       item_df=None, overall_rate=None, mc_q=None):
+    """Build parent-question group statistics.
+    大題平均 = 各小題平均分之和（小題平均已排除缺席學生，二選一題只計選答學生），
+    故與試題分析一致；MC 選擇題自成一個大題，避免與乙部 Q1a、Q1b… 混在一起。"""
     present_mask   = ~df.index.isin(absent_set)
     present_scores = df[present_mask]
-    overall_rate   = total_scores.mean() / max_scores.sum() * 100
+    if overall_rate is None:
+        overall_rate = total_scores.mean() / max_scores.sum() * 100
+    mc_q = set(mc_q or [])
+
+    item_mean = {}
+    if item_df is not None:
+        _qc = "題目" if "題目" in item_df.columns else item_df.columns[0]
+        item_mean = dict(zip(item_df[_qc].astype(str), item_df["平均分"]))
 
     parent_groups = defaultdict(list)
     for q in df.columns:
+        if q in mc_q:
+            _pre = q.split("_", 1)[0] + "_" if "_" in q else ""
+            parent_groups[_pre + "MC選擇題"].append(q)
+            continue
         _, parent = _get_parent_q(q)
         parent_groups[parent].append(q)
 
     rows = []
     for parent, qs in parent_groups.items():
         grp_max    = sum(max_scores[q] for q in qs)
-        grp_scores = present_scores[qs].sum(axis=1)
-        grp_avg    = grp_scores.mean()
+        if item_mean and all(str(q) in item_mean for q in qs):
+            grp_avg = float(sum(item_mean[str(q)] for q in qs))
+        else:
+            grp_avg = present_scores[qs].sum(axis=1).mean()
         grp_rate   = grp_avg / grp_max * 100 if grp_max else 0
 
         diff = ("容易" if grp_rate >= 70 else "困難" if grp_rate < 40 else "適中")
@@ -268,7 +284,7 @@ def _build_overview(doc, exam_info, n_total, n_absent, n_present,
     rows_data = [
         ["考試名稱", f"{year_label} {exam_type_label}", "科目", subject_label],
         ["年級",     form_label, "總滿分", f"{total_max} 分{paper_max_str}"],
-        ["及格線",   f"{int(pass_threshold)} 分（{pass_rate_pct}%）",
+        ["合格線",   f"{int(pass_threshold)} 分（{pass_rate_pct}%）",
          "出席人數", f"{n_present} 人（全班 {n_total} 人，缺席 {n_absent} 人）"],
     ]
     for ri, row_data in enumerate(rows_data):
@@ -285,19 +301,19 @@ def _build_overview(doc, exam_info, n_total, n_absent, n_present,
     _add_spacer(doc, 1)
 
     overall_comment = (
-        f"整體表現理想，及格率達 {pass_pct:.1f}%，反映大部分同學已掌握本科核心概念。"
+        f"整體表現理想，合格率達 {pass_pct:.1f}%，反映大部分同學已掌握本科核心概念。"
         if pass_pct >= 85 else
-        f"整體表現尚可，及格率為 {pass_pct:.1f}%，仍有部分同學需要針對性跟進。"
+        f"整體表現尚可，合格率為 {pass_pct:.1f}%，仍有部分同學需要針對性跟進。"
         if pass_pct >= 70 else
-        f"整體表現欠佳，及格率僅 {pass_pct:.1f}%，建議全面檢視教學重點。"
+        f"整體表現欠佳，合格率僅 {pass_pct:.1f}%，建議全面檢視教學重點。"
     )
     _add_body(doc,
-        f"全班共 {n_present} 名同學出席考試，及格人數為 {n_pass} 人，"
-        f"及格率為 {pass_pct:.1f}%。{overall_comment}"
+        f"全班共 {n_present} 名同學出席考試，合格人數為 {n_pass} 人，"
+        f"合格率為 {pass_pct:.1f}%。{overall_comment}"
     )
     _add_body(doc,
         f"全班平均分為 {mean_score:.1f} 分（得分率 {mean_pct:.1f}%），"
-        f"最高分 {max_score_val:.0f} 分，最低分 {min_score_val:.0f} 分，"
+        f"最高分 {round(max_score_val, 1):g} 分，最低分 {round(min_score_val, 1):g} 分，"
         f"標準差 {std_score:.1f}，中位數 {median_score:.1f} 分。"
     )
     _add_divider(doc)
@@ -339,8 +355,11 @@ def _build_item_analysis(doc, item_df, overall_rate):
             d   = row.get("鑑別度", 0)
             dl  = _disc_label(d)
             dif = _diff(row[rate_col])
+            _n_note = ""
+            if "作答人數" in item_df.columns and row["作答人數"] < item_df["作答人數"].max():
+                _n_note = f"（選答 {int(row['作答人數'])} 人）"
             _add_bullet(doc,
-                f"{qn}（滿分 {int(row['滿分'])} 分）：平均 {row['平均分']:.1f} 分，"
+                f"{qn}（滿分 {int(row['滿分'])} 分）{_n_note}：平均 {row['平均分']:.1f} 分，"
                 f"得分率 {row[rate_col]:.1f}%，屬{dif}題，鑑別度 {d:.2f}（{dl}）。建議補充相關概念。"
             )
     else:
@@ -369,10 +388,15 @@ def _build_item_analysis(doc, item_df, overall_rate):
     _add_divider(doc)
 
 
+def _natural_key(s):
+    return [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", str(s))]
+
+
 def _build_group_analysis(doc, df, max_scores, paper_map, absent_set,
-                           total_scores, item_df):
+                           total_scores, item_df, overall_rate=None, mc_q=None):
     group_df2, overall_rate = _build_group_stats(
-        df, max_scores, paper_map, absent_set, total_scores)
+        df, max_scores, paper_map, absent_set, total_scores,
+        item_df=item_df, overall_rate=overall_rate, mc_q=mc_q)
 
     _add_heading(doc, "三、大題分析")
     _add_body(doc, f"以下按大題匯總各小題表現，並與全卷整體得分率（{overall_rate:.1f}%）作比較：")
@@ -390,7 +414,7 @@ def _build_group_analysis(doc, df, max_scores, paper_map, absent_set,
             paper_label = label_map.get(paper_key, paper_key)
             _add_heading(doc, f"【{paper_label}】", level=2, color=(0, 0, 0))
 
-        paper_rows = group_df2[group_df2["paper"] == paper_key].sort_values("parent").to_dict("records")
+        paper_rows = sorted(group_df2[group_df2["paper"] == paper_key].to_dict("records"), key=lambda r: _natural_key(r["parent"]))
 
         for row in paper_rows:
             rate    = row["rate"];  delta   = rate - overall_rate
@@ -507,7 +531,7 @@ def _build_tier_analysis(doc, total_scores, total_max, pass_threshold, n_present
 
     if len(tier_low) > 0:
         _add_body(doc,
-            f"以下 {len(tier_low)} 名同學未達及格線，建議優先安排個別跟進："
+            f"以下 {len(tier_low)} 名同學未達合格線，建議優先安排個別跟進："
             f"{"、".join(tier_low.index.tolist())}。"
         )
     if len(tier_top) > 0:
@@ -553,7 +577,7 @@ def _build_suggestions(doc, weak_qs, poor_disc, worst_grp, overall_rate,
 
     if len(tier_low) > 0:
         suggestions.append(
-            f"【個別跟進】共 {len(tier_low)} 名同學未達及格線，"
+            f"【個別跟進】共 {len(tier_low)} 名同學未達合格線，"
             f"建議安排個別面談及補底支援。"
         )
 
@@ -601,7 +625,7 @@ def _build_suggestions(doc, weak_qs, poor_disc, worst_grp, overall_rate,
 
 def generate_text_report(
     df, max_scores, paper_map, class_info, exam_info,
-    absent_set, item_df, group_df, student_df, stats_df
+    absent_set, item_df, group_df, student_df, stats_df, extras=None
 ) -> bytes:
     """
     生成全班試卷分析文字報告（Word .docx）。
@@ -623,13 +647,30 @@ def generate_text_report(
     -------
     bytes  Word docx 內容
     """
-    # ── 基本統計 ──
+    # ── 欄位名稱統一（ea.item_analysis 的欄名為「題號」「鑑別度 D」「難度指數 P」）──
+    item_df = item_df.copy()
+    _ren = {}
+    if "鑑別度" not in item_df.columns and "鑑別度 D" in item_df.columns:
+        _ren["鑑別度 D"] = "鑑別度"
+    if "題目" not in item_df.columns and "題號" in item_df.columns:
+        _ren["題號"] = "題目"
+    item_df = item_df.rename(columns=_ren)
+
+    # ── 基本統計：總分一律取自學生成績表（多卷＝加權分；已計入扣分、二選一大題）──
     present_mask   = ~df.index.isin(absent_set)
-    present_scores = df[present_mask]
-    total_max      = int(max_scores.sum())
+    score_col      = "總分(加權)" if "總分(加權)" in student_df.columns else "總分"
+    _sc            = pd.to_numeric(student_df[score_col], errors="coerce")
+    total_scores   = _sc[~_sc.index.isin(absent_set)].dropna()
+    total_max      = None
+    if stats_df is not None and "統計項目" in stats_df.columns:
+        _r = stats_df[(stats_df["區塊"] == "整體") & (stats_df["統計項目"] == "滿分")]
+        if len(_r):
+            total_max = float(_r["數值"].iloc[0])
+    if not total_max:
+        total_max = 100.0 if score_col == "總分(加權)" else float(max_scores.sum())
+    total_max      = int(total_max) if float(total_max).is_integer() else float(total_max)
     pass_rate      = float(exam_info.get("pass_rate", 0.4))
     pass_threshold = total_max * pass_rate
-    total_scores   = present_scores.sum(axis=1)
 
     n_total   = len(df)
     n_absent  = len(absent_set)
@@ -643,17 +684,21 @@ def generate_text_report(
     min_score_val = float(total_scores.min())
     std_score     = float(total_scores.std())
     median_score  = float(total_scores.median())
+    mc_q          = list((extras or {}).get("mc_info", {}) or {})
 
     # ── 試卷最大分拆解字串 ──
     papers = sorted(set(paper_map.values()))
     if len(papers) > 1:
+        _w   = exam_info.get("paper_weights", {}) or {}
+        _eff = (extras or {}).get("paper_max_eff", {}) or {}
         parts = []
         for p_key in papers:
             qs_in_p = [q for q, pv in paper_map.items() if pv == p_key]
-            p_max   = int(sum(max_scores[q] for q in qs_in_p))
+            p_max   = float(_eff.get(p_key, sum(max_scores[q] for q in qs_in_p)))
             label   = p_key.replace("P1", "卷一").replace("P2", "卷二").replace("P3", "卷三").replace("P4", "卷四")
-            parts.append(f"{label} {p_max} 分")
-        paper_max_str = "（" + "　".join(parts) + "）"
+            wtxt    = f"，佔 {float(_w[p_key]) * 100:g}%" if p_key in _w else ""
+            parts.append(f"{label} {p_max:g} 分{wtxt}")
+        paper_max_str = "（加權計算；" + "　".join(parts) + "）" if score_col == "總分(加權)" else "（" + "　".join(parts) + "）"
     else:
         paper_max_str = ""
 
@@ -682,7 +727,8 @@ def generate_text_report(
     )
     _build_item_analysis(doc, _item, mean_pct)
     _, overall_rate, best_grp, worst_grp = _build_group_analysis(
-        doc, df, max_scores, paper_map, absent_set, total_scores, _item)
+        doc, df, max_scores, paper_map, absent_set, total_scores, _item,
+        overall_rate=mean_pct, mc_q=mc_q)
     tier_top, tier_mid, tier_low = _build_tier_analysis(
         doc, total_scores, total_max, pass_threshold, n_present)
     _build_suggestions(

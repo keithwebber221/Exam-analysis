@@ -377,7 +377,7 @@ def _make_distribution_sheet(wb, df, max_scores, paper_map, class_col, classes, 
         ws.row_dimensions[cur_row].height = 22
         ws.merge_cells(start_row=cur_row, start_column=2, end_row=cur_row, end_column=1+total_cols)
         _sc(ws.cell(cur_row,2),
-            val=f"◆  {sec_label}　　滿分：{int(s_max)}　　及格線：{round(pass_th)} 分（40%）",
+            val=f"◆  {sec_label}　　滿分：{int(s_max)}　　合格線：{round(pass_th)} 分（40%）",
             fill=_cfill("2C3E50"), font=_hdr_fnt(bold=True, size=12, color="FFFFFF"),
             aln=Alignment(horizontal="left",vertical="center",indent=1))
         cur_row += 1
