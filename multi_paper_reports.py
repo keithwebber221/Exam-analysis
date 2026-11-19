@@ -1,7 +1,7 @@
 """
 multi_paper_reports.py
 多份試卷：每卷個人報告 ＋ 總成績報告（含排名）
-依賴 individual_report.py 的版面工具與 create_personal_report_v2_4
+只依賴 individual_report.py 內既有的版面工具（不需要修改 individual_report.py）
 """
 import io
 import numpy as np
@@ -69,8 +69,92 @@ def absent_doc(label=""):
     return doc
 
 
+def _cell_fmt(cell, size=10, bold=False, color=None, bg=None, align="c"):
+    if bg:
+        ir.set_cell_background(cell, bg)
+    for para in cell.paragraphs:
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER if align == "c" else WD_ALIGN_PARAGRAPH.LEFT
+        for run in para.runs:
+            run.font.size = Pt(size); run.font.bold = bold; run.font.name = FONT
+            if color:
+                run.font.color.rgb = RGBColor(*color)
+
+
+def _paper_doc(name, title, score, paper_max, stu, mx_sub, skip, notes, ded,
+               avg_score, rank_text, class_info, pass_rate):
+    """單一試卷的個人報告（版面與原個人報告一致，另有排名、扣分、MC 錯題標註）。"""
+    doc = Document()
+    sec = doc.sections[0]
+    sec.page_height = Inches(11.69); sec.page_width = Inches(8.27)
+    sec.top_margin = sec.bottom_margin = Inches(0.3)
+    sec.left_margin = sec.right_margin = Inches(0.3)
+
+    def line(text, size, bold=False, color=None):
+        p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r = p.add_run(text); r.font.size = Pt(size); r.font.bold = bold; r.font.name = FONT
+        if color:
+            r.font.color.rgb = RGBColor(*color)
+        return p
+
+    line(title, 16, True, (25, 25, 112))
+    line("學生個人成績報告", 12, True)
+    cn = cnum = "N/A"
+    if class_info is not None:
+        m = class_info[class_info["中文姓名"] == name]
+        if not m.empty:
+            cn, cnum = str(m.iloc[0]["班別"]), str(m.iloc[0]["班號"])
+    line(f"班別：{cn}  班號：{cnum}  姓名：{name}  "
+         f"總分：{ir.fmt_score(score)}/{ir.fmt_score(paper_max)}  "
+         f"({score / paper_max * 100:.1f}%)" + (f"  {rank_text}" if rank_text else ""), 11, True)
+    doc.add_paragraph()
+
+    tbl = doc.add_table(rows=1, cols=4)
+    tbl.style = "Light Grid Accent 1"
+    tbl.autofit = False
+    for c, t, w in zip(tbl.rows[0].cells, ["題號", "滿分", "得分", "得分率"], [1.4, 0.8, 0.8, 1.0]):
+        c.text = t; c.width = Inches(w)
+        _cell_fmt(c, 10, True, (255, 255, 255), "1f4e78")
+
+    shown = []
+    for q in stu.index:
+        if q in skip:
+            continue
+        sc, mx = float(stu[q]), float(mx_sub[q])
+        shown.append(q)
+        cells = tbl.add_row().cells
+        cells[0].text = str(q) + (f"  {notes[q]}" if q in notes else "")
+        cells[1].text = ir.fmt_score(mx)
+        cells[2].text = ir.fmt_score(sc)
+        cells[3].text = f"{sc / mx * 100:.1f}%" if mx > 0 else "0.0%"
+        for c in cells:
+            _cell_fmt(c, 9)
+    if ded:
+        cells = tbl.add_row().cells
+        for c, t in zip(cells, ["扣分", "-", ir.fmt_score(ded), "-"]):
+            c.text = t; _cell_fmt(c, 9)
+    doc.add_paragraph()
+
+    try:
+        buf = ir.create_single_bar_progress(score, paper_max, avg_score, paper_max)
+        if buf:
+            p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            doc.add_picture(buf, width=Inches(7.5)); buf.close()
+    except Exception:
+        pass
+    doc.add_paragraph()
+    try:
+        s2 = stu[shown]
+        out = ir.create_strong_weak_analysis_chart_v2(s2, mx_sub[shown], pass_rate)
+        if out and out[0]:
+            p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            doc.add_picture(out[0], width=Inches(7.5)); out[0].close()
+    except Exception:
+        pass
+    return doc
+
+
 def build_paper_report(name, p, T, df, max_scores, paper_map, extras, exam_info,
-                       class_info, pass_rate, item_df):
+                       class_info, pass_rate, item_df=None):
     extras = extras or {}
     cols = [q for q in df.columns if paper_map[q] == p]
     att = extras.get("attempted")
@@ -93,7 +177,8 @@ def build_paper_report(name, p, T, df, max_scores, paper_map, extras, exam_info,
         if q in labels and not isinstance(pos, slice):
             chosen = d["answers"][pos]
             if df.loc[name, q] < d["marks"]:
-                notes[labels[q]] = f"(選{chosen}/答{d['key']})" if chosen != "-" else f"(未答/答{d['key']})"
+                notes[labels[q]] = (f"(選{chosen}/答{d['key']})" if chosen != "-"
+                                    else f"(未答/答{d['key']})")
 
     ded = 0.0
     if p in extras.get("deductions", {}):
@@ -103,14 +188,10 @@ def build_paper_report(name, p, T, df, max_scores, paper_map, extras, exam_info,
     rk = T["rank_paper"].loc[name, p]
     rank_text = f"｜試卷排名：{int(rk)}/{T['n_present']}" if pd.notna(rk) else ""
     w = float(T["weights"][p])
-    suffix = f"　{p}（佔總成績 {w*100:g}%）"
-
-    doc = ir.create_personal_report_v2_4(
-        name, score, paper_max, stu, mx_sub, item_df, exam_info,
-        float(T["avg_raw"][p]), paper_max, class_info, pass_rate,
-        skip_questions={labels[q] for q in skip}, rank_text=rank_text,
-        title_suffix=suffix, deduction=ded, row_notes=notes)
-    return doc
+    title = f"{exam_info['exam_title']}　{p}（佔總成績 {w * 100:g}%）"
+    return _paper_doc(name, title, score, paper_max, stu, mx_sub,
+                      {labels[q] for q in skip}, notes, ded,
+                      float(T["avg_raw"][p]), rank_text, class_info, pass_rate)
 
 
 def _paper_bar_chart(papers, stu_pct, avg_pct, pass_rate):
@@ -122,7 +203,7 @@ def _paper_bar_chart(papers, stu_pct, avg_pct, pass_rate):
         ax.text(a_ + 1, yy + 0.18, f"{a_:.1f}%", va="center", fontsize=10, color="#b9770e")
         ax.text(s_ + 1, yy - 0.18, f"{s_:.1f}%", va="center", fontsize=10, color="#1f618d", fontweight="bold")
     ax.axvline(pass_rate * 100, color="#e74c3c", linestyle="--", alpha=0.6)
-    ax.text(pass_rate * 100, len(papers) - 0.35, f"及格線 {pass_rate*100:g}%", color="#e74c3c",
+    ax.text(pass_rate * 100, len(papers) - 0.35, f"及格線 {pass_rate * 100:g}%", color="#e74c3c",
             fontsize=9, ha="center")
     ax.set_yticks(y); ax.set_yticklabels(papers, fontsize=12, fontweight="bold")
     ax.set_xlim(0, 112); ax.set_xlabel("得分率 %", fontsize=11)
@@ -133,17 +214,6 @@ def _paper_bar_chart(papers, stu_pct, avg_pct, pass_rate):
     buf = io.BytesIO(); plt.savefig(buf, format="png", dpi=100, bbox_inches="tight", facecolor="white")
     buf.seek(0); plt.close(fig)
     return buf
-
-
-def _cell_fmt(cell, size=10, bold=False, color=None, bg=None, align="c"):
-    if bg:
-        ir.set_cell_background(cell, bg)
-    for para in cell.paragraphs:
-        para.alignment = WD_ALIGN_PARAGRAPH.CENTER if align == "c" else WD_ALIGN_PARAGRAPH.LEFT
-        for run in para.runs:
-            run.font.size = Pt(size); run.font.bold = bold; run.font.name = FONT
-            if color:
-                run.font.color.rgb = RGBColor(*color)
 
 
 def build_total_report(name, T, df, extras, exam_info, class_info, pass_rate):
@@ -180,7 +250,6 @@ def build_total_report(name, T, df, extras, exam_info, class_info, pass_rate):
          f"{'及格' if passed else '未及格'}", 15, True,
          (0, 110, 50) if passed else (192, 57, 43), space=6)
 
-    # ── 各卷表現表 ──
     hdr = ["試卷", "比重", "得分 / 滿分", "得分率", "全班平均", "與平均差距", "試卷排名"]
     tbl = doc.add_table(rows=1, cols=len(hdr)); tbl.style = "Light Grid Accent 1"
     for c, t in zip(tbl.rows[0].cells, hdr):
@@ -190,7 +259,7 @@ def build_total_report(name, T, df, extras, exam_info, class_info, pass_rate):
         pc = float(T["pct"].loc[name, p]); ap = float(T["avg_pct"][p])
         d = pc - ap; r_ = T["rank_paper"].loc[name, p]
         cells = tbl.add_row().cells
-        vals = [p, f"{T['weights'][p]*100:g}%", f"{ir.fmt_score(s)} / {ir.fmt_score(m)}",
+        vals = [p, f"{T['weights'][p] * 100:g}%", f"{ir.fmt_score(s)} / {ir.fmt_score(m)}",
                 f"{pc:.1f}%", f"{ap:.1f}%", f"{d:+.1f}pp", f"{int(r_)} / {T['n_present']}"]
         for c, t in zip(cells, vals):
             c.text = t
@@ -201,17 +270,14 @@ def build_total_report(name, T, df, extras, exam_info, class_info, pass_rate):
             _cell_fmt(c, 10, i in (0, 3), col)
     doc.add_paragraph()
 
-    # ── 圖：加權總分 vs 全班 ──
     buf = ir.create_single_bar_progress(wscore, 100.0, avg_w, 100.0)
     if buf:
         doc.add_picture(buf, width=Inches(7.5)); buf.close()
-    # ── 圖：各卷得分率 ──
     cb = _paper_bar_chart(papers, [float(T["pct"].loc[name, p]) for p in papers],
                           [float(T["avg_pct"][p]) for p in papers], pass_rate)
     doc.add_picture(cb, width=Inches(7.0)); cb.close()
 
-    # ── 說明與重點 ──
-    formula = " ＋ ".join(f"{p}得分率 × {T['weights'][p]*100:g}%" for p in papers)
+    formula = " ＋ ".join(f"{p}得分率 × {T['weights'][p] * 100:g}%" for p in papers)
     para(f"計算方式：加權總分 ＝ {formula}", 9.5, False, (90, 90, 90), WD_ALIGN_PARAGRAPH.LEFT)
     ded_txt = []
     for p in papers:
