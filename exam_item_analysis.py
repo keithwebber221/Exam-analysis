@@ -374,8 +374,12 @@ def item_analysis(df: pd.DataFrame, max_scores: pd.Series,
         if attempted is not None and q in attempted.columns and not attempted[q].all():
             m_att  = attempted[q].astype(bool)          # 二選一題：只計選答學生
             scores = scores[m_att]
-            hq, lq = hq[m_att.reindex(hq.index)], lq[m_att.reindex(lq.index)]
             n_att  = len(scores)
+            if n_att > 0:
+                # 只在選答學生之間分高、低組（按總分排序，各取 27%，至少 1 人）
+                _sub = sorted_df.loc[sorted_df.index.isin(scores.index)]
+                _kq  = max(1, int(np.floor(len(_sub) * TOP_BOTTOM_PCT)))
+                hq, lq = _sub.head(_kq)[q], _sub.tail(_kq)[q]
         if n_att == 0:
             skipped.append(q)
             continue
