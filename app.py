@@ -298,6 +298,11 @@ hr {
 # ══════════════════════════════════════════════════════════════
 # 工具函數：load_data 的 BytesIO 版本
 # ══════════════════════════════════════════════════════════════
+EXAM_TYPES = {
+    "上學期測驗": "T1T", "上學期考試": "T1E",
+    "下學期測驗": "T2T", "下學期考試": "T2E",
+    "模擬考試一": "M1",  "模擬考試二": "M2",
+}
 from score_loader import load_data_from_bytes, load_data_with_extras, total_scores as _total_scores
 
 
@@ -457,20 +462,69 @@ def _merge_pdf_bytes(pdf_bytes_list: list) -> bytes:
     return out.read()
 
 
+def _docx_batch_to_pdf(entries, chunk=60):
+    """批量把 docx 轉成 PDF（一次呼叫 LibreOffice 處理多個檔案，比逐個轉換快很多）。
+    entries: [(key, docx_bytes)] → 回傳 {key: pdf_bytes}"""
+    import subprocess, tempfile
+    out = {}
+    for s in range(0, len(entries), chunk):
+        part = entries[s:s + chunk]
+        with tempfile.TemporaryDirectory() as tmp:
+            names = {}
+            for k, (key, b) in enumerate(part):
+                fn = f"r{k:04d}"
+                with open(os.path.join(tmp, fn + ".docx"), "wb") as fh:
+                    fh.write(b)
+                names[key] = fn
+            files = [os.path.join(tmp, fn + ".docx") for fn in names.values()]
+            for lo_cmd in ["libreoffice", "soffice", "/usr/bin/libreoffice",
+                           "/usr/lib/libreoffice/program/soffice"]:
+                try:
+                    subprocess.run([lo_cmd, "--headless", "--convert-to", "pdf",
+                                    "--outdir", tmp] + files,
+                                   capture_output=True, timeout=600)
+                    if any(os.path.exists(os.path.join(tmp, fn + ".pdf")) for fn in names.values()):
+                        break
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    continue
+            for key, fn in names.items():
+                pp = os.path.join(tmp, fn + ".pdf")
+                if os.path.exists(pp):
+                    with open(pp, "rb") as fh:
+                        out[key] = fh.read()
+    # 個別失敗的檔案再逐個重試
+    for key, b in entries:
+        if key not in out:
+            pb = _docx_bytes_to_pdf_bytes(b)
+            if pb:
+                out[key] = pb
+    return out
+
+
 def generate_reports_zip(df, max_scores, item_df, exam_info, class_info,
-                          pass_rate, absent_set, gen_pdf=True, extras=None):
+                          pass_rate, absent_set, gen_pdf=True, extras=None,
+                          paper_weights=None, paper_map=None):
     """
-    生成個人報告 ZIP（BytesIO）
-    回傳：(docx_zip_bytes, pdf_zip_bytes, merged_pdf_bytes)
-    pdf_zip_bytes / merged_pdf_bytes 在 LibreOffice 不可用時為 None
+    生成個人報告。
+    單份試卷：每名學生一份個人報告。
+    多份試卷：每名學生每卷一份個人報告 ＋ 一份總成績報告。
+    回傳：(docx_zip_bytes, pdf_zip_bytes, merged_pdfs)
+      merged_pdfs 為 {標籤: 全班合併PDF bytes}（可直接列印）；LibreOffice 不可用時為 None
     """
+    import multi_paper_reports as mpr
+    papers = sorted(set(paper_map.values())) if paper_map else ["P1"]
+    multi  = len(papers) > 1 and bool(paper_weights) and paper_map is not None
+
     total_scores = _total_scores(df, extras)
     total_max    = int(max_scores.sum())
     class_avg    = item_df["平均分"].sum()
-    if extras:   # 二選一大題／扣分：以有效滿分及出席學生實際平均計算
+    if extras:
         total_max = int(sum(extras.get("paper_max_eff", {}).values()) or total_max)
         _present  = total_scores[~total_scores.index.isin(absent_set)]
         class_avg = float(_present.mean()) if len(_present) else class_avg
+
+    T = mpr.compute_tables(df, max_scores, paper_map, paper_weights, extras, absent_set) if multi else None
+    groups = [f"{p}個人報告" for p in papers] + ["總成績報告"] if multi else ["個人報告"]
 
     class_info_dict = {}
     if class_info is not None and len(class_info):
@@ -479,72 +533,66 @@ def generate_reports_zip(df, max_scores, item_df, exam_info, class_info,
             zip(class_info["班別"].astype(str), class_info["班號"].astype(str))
         ))
 
-    docx_entries = []   # [(fname_base, docx_bytes), ...]
-    pdf_entries  = []   # [(fname_base, pdf_bytes), ...]
+    docx_entries = []   # [(group, fname_base, docx_bytes)]
+
+    def _bytes(doc):
+        b = io.BytesIO(); doc.save(b); return b.getvalue()
 
     for student_name in df.index:
-        student_score = total_scores[student_name]
         class_code, class_num = class_info_dict.get(student_name, ("", "00"))
         try:
             class_num_int = int(float(class_num))
-        except:
+        except Exception:
             class_num_int = 0
+        stem = f"{class_code}{class_num_int:02d}{student_name}"
+        absent = student_name in absent_set
 
-        if student_name in absent_set:
-            from docx import Document
-            from docx.shared import Pt, Inches
-            from docx.enum.text import WD_ALIGN_PARAGRAPH
-            from docx.shared import RGBColor
-            doc = Document()
-            sec = doc.sections[0]
-            sec.top_margin = sec.bottom_margin = Inches(1.0)
-            sec.left_margin = sec.right_margin = Inches(1.2)
-            for _ in range(3): doc.add_paragraph()
-            p = doc.add_paragraph()
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            r = p.add_run("本次缺席")
-            r.font.size = Pt(36); r.font.bold = True
-            r.font.color.rgb = RGBColor(0xC0, 0x39, 0x2B)
-        else:
-            doc = ir.create_personal_report_v2_4(
-                student_name, student_score, total_max,
+        if not multi:
+            doc = (mpr.absent_doc() if absent else ir.create_personal_report_v2_4(
+                student_name, total_scores[student_name], total_max,
                 df.loc[student_name], max_scores, item_df,
-                exam_info, class_avg, total_max,
-                class_info, pass_rate
-            )
+                exam_info, class_avg, total_max, class_info, pass_rate))
+            docx_entries.append((groups[0], f"{stem}_個人報告", _bytes(doc)))
+            continue
 
-        fname_base = f"{class_code}{class_num_int:02d}{student_name}_個人報告"
-        doc_buf = io.BytesIO()
-        doc.save(doc_buf)
-        docx_bytes = doc_buf.getvalue()
-        docx_entries.append((fname_base, docx_bytes))
+        for p in papers:
+            g = f"{p}個人報告"
+            doc = (mpr.absent_doc(p) if absent else mpr.build_paper_report(
+                student_name, p, T, df, max_scores, paper_map, extras,
+                exam_info, class_info, pass_rate, item_df))
+            docx_entries.append((g, f"{stem}_{g}", _bytes(doc)))
+        doc = (mpr.absent_doc("總成績") if absent else mpr.build_total_report(
+            student_name, T, df, extras, exam_info, class_info, pass_rate))
+        docx_entries.append(("總成績報告", f"{stem}_總成績報告", _bytes(doc)))
 
-        if gen_pdf:
-            pdf_bytes = _docx_bytes_to_pdf_bytes(docx_bytes)
-            if pdf_bytes:
-                pdf_entries.append((fname_base, pdf_bytes))
-
-    # 打包 Word ZIP
+    # Word ZIP（多卷時分資料夾）
     docx_buf = io.BytesIO()
     with zipfile.ZipFile(docx_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for fname_base, docx_bytes in docx_entries:
-            zf.writestr(f"{fname_base}.docx", docx_bytes)
+        for g, fb, db in docx_entries:
+            zf.writestr(f"{g}/{fb}.docx" if multi else f"{fb}.docx", db)
     docx_buf.seek(0)
     docx_zip = docx_buf.read()
 
-    # 打包 PDF ZIP + 合併 PDF
     pdf_zip = merged_pdf = None
-    if pdf_entries:
-        pdf_buf = io.BytesIO()
-        with zipfile.ZipFile(pdf_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for fname_base, pdf_bytes in pdf_entries:
-                zf.writestr(f"{fname_base}.pdf", pdf_bytes)
-        pdf_buf.seek(0)
-        pdf_zip = pdf_buf.read()
-        try:
-            merged_pdf = _merge_pdf_bytes([pb for _, pb in pdf_entries])
-        except Exception:
-            merged_pdf = None
+    if gen_pdf:
+        pdfs = _docx_batch_to_pdf([((g, fb), db) for g, fb, db in docx_entries])
+        if pdfs:
+            pdf_buf = io.BytesIO()
+            with zipfile.ZipFile(pdf_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for g, fb, _ in docx_entries:
+                    if (g, fb) in pdfs:
+                        zf.writestr(f"{g}/{fb}.pdf" if multi else f"{fb}.pdf", pdfs[(g, fb)])
+            pdf_buf.seek(0)
+            pdf_zip = pdf_buf.read()
+            merged_pdf = {}
+            for g in groups:
+                lst = [pdfs[(gg, fb)] for gg, fb, _ in docx_entries if gg == g and (gg, fb) in pdfs]
+                if lst:
+                    try:
+                        merged_pdf[f"全班{g}"] = _merge_pdf_bytes(lst)
+                    except Exception:
+                        pass
+            merged_pdf = merged_pdf or None
 
     return docx_zip, pdf_zip, merged_pdf
 
@@ -641,7 +689,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
     col1, col2, col3 = st.columns(3)
     with col1:
         year_input = st.text_input("年度（如 2526）", value="2526", max_chars=4)
-        exam_type  = st.selectbox("考試類別", ["上學期測驗","上學期考試","下學期測驗","下學期考試"])
+        exam_type  = st.selectbox("考試類別", list(EXAM_TYPES))
     with col2:
         form_label  = st.selectbox("年級", ["F1","F2","F3","F4","F5","F6"])
         subject_label = st.text_input("科目（如 BAFS）", value="BAFS")
@@ -673,7 +721,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
             st.success(f"✅ 各卷比例設定正確")
 
     # 組合 exam_info
-    EXAM_CODES = {"上學期測驗":"T1T","上學期考試":"T1E","下學期測驗":"T2T","下學期考試":"T2E"}
+    EXAM_CODES = EXAM_TYPES
     year_label  = f"20{year_input[:2]}-20{year_input[2:]}" if len(year_input)==4 else year_input
     exam_title  = f"{year_label} {exam_type}｜{form_label} {subject_label}"
     file_prefix = f"{year_input}_{EXAM_CODES.get(exam_type,'EXAM')}_{form_label}_{subject_label}"
@@ -762,7 +810,8 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                         item_df, group_df, student_df, stats_df, exam_title, mc_df=mc_df)
                     docx_zip, pdf_zip, merged_pdf = generate_reports_zip(
                         df, max_scores, item_df, exam_info,
-                        class_info, pass_rate, absent_set, gen_pdf=True, extras=extras)
+                        class_info, pass_rate, absent_set, gen_pdf=True, extras=extras,
+                        paper_weights=paper_weights, paper_map=paper_map)
 
                 # 計算圖表資料（供 Plotly 互動顯示用）
                 item_plot = item_df.copy()
@@ -896,8 +945,11 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                     azf.writestr(f"{fp}_個人報告_Word.zip",     ss.docx_zip)
                     if ss.pdf_zip:
                         azf.writestr(f"{fp}_個人報告_PDF.zip", ss.pdf_zip)
-                    if ss.merged_pdf:
-                        azf.writestr(f"{fp}_全班個人報告.pdf",  ss.merged_pdf)
+                    _mp_all = ss.merged_pdf
+                    if isinstance(_mp_all, (bytes, bytearray)):
+                        _mp_all = {"全班個人報告": bytes(_mp_all)}
+                    for _lbl, _pb in (_mp_all or {}).items():
+                        azf.writestr(f"{fp}_{_lbl}.pdf", _pb)
                     azf.writestr(f"{fp}_圖表.zip",             ss.charts_png_zip)
                     if ss.get("text_report_bytes"):
                         azf.writestr(f"{fp}_試卷分析報告.docx", ss.text_report_bytes)
@@ -959,13 +1011,18 @@ padding:12px 20px;border-radius:12px;margin:16px 0 12px;font-weight:700;font-siz
                     else:
                         st.info("📄 PDF：需 packages.txt 安裝 LibreOffice")
                 with dl5:
-                    if ss.merged_pdf:
-                        st.download_button(
-                            "合併個人報告 PDF",
-                            data=ss.merged_pdf,
-                            file_name=f"{fp}_全班個人報告.pdf",
-                            mime="application/pdf",
-                            use_container_width=True)
+                    _mp = ss.merged_pdf
+                    if isinstance(_mp, (bytes, bytearray)):
+                        _mp = {"全班個人報告": bytes(_mp)}
+                    if _mp:
+                        for _lbl, _pb in _mp.items():
+                            st.download_button(
+                                f"🖨️ {_lbl} PDF（全班合併，可直接列印）",
+                                data=_pb,
+                                file_name=f"{fp}_{_lbl}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True,
+                                key=f"mp_dl_{_lbl}")
                     else:
                         st.info("📄 合併 PDF：需 LibreOffice + pypdf")
 
@@ -1051,7 +1108,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.7">
         _c1, _c2, _c3 = st.columns(3)
         with _c1:
             _yr   = st.text_input("學年", value="2526", max_chars=4, key="cia_year")
-            _exam = st.selectbox("考試類別", ["一測", "二測", "一考", "二考"], key="cia_exam")
+            _exam = st.selectbox("考試類別", list(EXAM_TYPES), key="cia_exam")
         with _c2:
             _form = st.selectbox("年級", ["F1","F2","F3","F4","F5","F6"], key="cia_form")
             _subj = st.text_input("科目", value="BAFS", key="cia_subj")
@@ -1059,7 +1116,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.7">
             _pr_pct = st.selectbox("及格線", ["40%","50%"], key="cia_pr")
             _pr     = 0.4 if "40" in _pr_pct else 0.5
 
-        EXAM_CODES2 = {"一測":"T1T","二測":"T1E","一考":"T2T","二考":"T2E"}
+        EXAM_CODES2 = EXAM_TYPES
         _yr_label2  = f"20{_yr[:2]}-20{_yr[2:]}" if len(_yr)==4 else _yr
         _exam_title2 = f"{_yr_label2} {_exam}{_form} {_subj}"
         _fp2         = f"{_yr}{EXAM_CODES2.get(_exam,'EXAM')}{_form}{_subj}"

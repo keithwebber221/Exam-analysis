@@ -295,7 +295,8 @@ def docx_to_pdf(docx_path, pdf_path):
 def create_personal_report_v2_4(student_name, total_score, total_max,
                                df_student_scores, max_scores, item_df, exam_info, 
                                class_avg_scores, class_total_max, class_info=None,
-                               pass_rate=0.4):
+                               pass_rate=0.4, skip_questions=None, rank_text="",
+                               title_suffix="", deduction=0.0, row_notes=None):
     """生成新版個人報告 v2.5（精簡版）"""
 
     # 確保純量，防止 Series 傳入
@@ -319,7 +320,7 @@ def create_personal_report_v2_4(student_name, total_score, total_max,
     # ========== 標題區域 ==========
     title = doc.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    title_run = title.add_run(exam_info["exam_title"])
+    title_run = title.add_run(exam_info["exam_title"] + (title_suffix or ""))
     title_run.font.size = Pt(16)
     title_run.font.bold = True
     title_run.font.name = DEFAULT_FONT
@@ -358,7 +359,7 @@ def create_personal_report_v2_4(student_name, total_score, total_max,
 
     _ts = float(total_score) if not hasattr(total_score, "__len__") else float(total_score.iloc[0]) if hasattr(total_score, "iloc") else float(total_score)
     _tm = float(total_max) if not hasattr(total_max, "__len__") else float(total_max.iloc[0]) if hasattr(total_max, "iloc") else float(total_max)
-    score_run = info_para.add_run(f"總分：{fmt_score(_ts)}/{fmt_score(_tm)}  ({_ts/_tm*100:.1f}%)")
+    score_run = info_para.add_run(f"總分：{fmt_score(_ts)}/{fmt_score(_tm)}  ({_ts/_tm*100:.1f}%)" + (f"  {rank_text}" if rank_text else ""))
     score_run.font.size = Pt(11)
     score_run.font.bold = True
     score_run.font.color.rgb = RGBColor(0, 0, 0)
@@ -394,13 +395,16 @@ def create_personal_report_v2_4(student_name, total_score, total_max,
                 run.font.name = DEFAULT_FONT
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
+    skip_questions = set(skip_questions or [])
     for q in df_student_scores.index:
+        if q in skip_questions:      # 二選一大題：未選答的題目不列出
+            continue
         score = df_student_scores[q]
         max_s = max_scores[q]
         rate = score / max_s * 100 if max_s > 0 else 0
 
         row_cells = table.add_row().cells
-        row_cells[0].text = str(q)
+        row_cells[0].text = str(q) + (f"  {row_notes[q]}" if row_notes and q in row_notes else "")
         row_cells[1].text = fmt_score(max_s)
         row_cells[2].text = fmt_score(score)
         row_cells[3].text = f"{rate:.1f}%"
@@ -411,6 +415,16 @@ def create_personal_report_v2_4(student_name, total_score, total_max,
                     run.font.size = Pt(9)
                     run.font.name = DEFAULT_FONT
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    if deduction:
+        _rc = table.add_row().cells
+        _rc[0].text = "扣分"; _rc[1].text = "-"
+        _rc[2].text = fmt_score(deduction); _rc[3].text = "-"
+        for _c in _rc:
+            for _p in _c.paragraphs:
+                for _r in _p.runs:
+                    _r.font.size = Pt(9); _r.font.name = DEFAULT_FONT
+                _p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     doc.add_paragraph()  # 空行
 
@@ -429,7 +443,10 @@ def create_personal_report_v2_4(student_name, total_score, total_max,
 
     doc.add_paragraph()  # 空行
 
-    # 圖 3：各題得分率分級分析
+    # 圖 3：各題得分率分級分析（排除未選答題目）
+    if skip_questions:
+        df_student_scores = df_student_scores.drop(
+            index=[q for q in skip_questions if q in df_student_scores.index])
     analysis_buf, strong_items, good_items, weak_items = create_strong_weak_analysis_chart_v2(df_student_scores, max_scores, pass_rate)
     if analysis_buf:
         analysis_para = doc.add_paragraph()
