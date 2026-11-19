@@ -558,6 +558,8 @@ def question_group_analysis(df, max_scores, item_df, extras=None, absent_set=Non
 # ============================================================
 # 4b. MC 選項分析
 # ============================================================
+ANALYSIS_VERSION = "v2-MC"
+
 def mc_option_analysis(extras, absent_set=None, index=None):
     """每題 A–D 選擇比例、答對率、最多人選的誘答項。無 MC 題則回傳空表。"""
     info = (extras or {}).get("mc_info") or {}

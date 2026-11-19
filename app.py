@@ -704,6 +704,25 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
             {"｜缺席：" + "、".join(sorted(absent_set)) if absent_set else ""}
             </div>''', unsafe_allow_html=True)
 
+            # ── 讀取結果摘要（MC／二選一／扣分）＋模組版本檢查 ──
+            if not hasattr(ea, "mc_option_analysis"):
+                st.error("❌ exam_item_analysis.py 仍是舊版（缺少 MC 分析），請上載最新版並重新啟動網頁")
+            _mc_n = len(extras.get("mc_info", {}))
+            _msg = []
+            if _mc_n:
+                _msg.append(f"🔤 MC 題 <b>{_mc_n}</b> 題（每題 {extras['mc_marks']:g} 分，已自動對答案評分）")
+            for _p, _e in extras.get("elective", {}).items():
+                _msg.append(f"🔀 {_p} 二選一大題 {' / '.join(_e['groups'])}：選答人數 "
+                            + "、".join(f"{k} {v}人" for k, v in _e["n_selected"].items())
+                            + f"（有效滿分 {extras['paper_max_eff'][_p]:g}）")
+            for _p, _s in extras.get("deductions", {}).items():
+                _n = int((_s != 0).sum())
+                if _n:
+                    _msg.append(f"➖ {_p} 扣分：{_n} 人")
+            if _msg:
+                st.markdown('<div class="success-box">' + "<br>".join(_msg) + '</div>',
+                            unsafe_allow_html=True)
+
             # 預覽
             with st.expander("📋 預覽學生名單", expanded=False):
                 st.dataframe(class_info, use_container_width=True)
@@ -829,8 +848,13 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                 scores_num = ss.scores_num
                 fp         = ss.file_prefix
 
-                tab1, tab2, tab3, tab4 = st.tabs(
-                    ["📊 試題分析","📋 大題分析","👨‍🎓 學生成績","📈 全班統計"])
+                _mc_show = ss.get("mc_df")
+                _has_mc  = _mc_show is not None and len(_mc_show) > 0
+                _tab_names = ["📊 試題分析","📋 大題分析","👨‍🎓 學生成績","📈 全班統計"]
+                if _has_mc:
+                    _tab_names.append("🔤 MC選項分析")
+                _tabs = st.tabs(_tab_names)
+                tab1, tab2, tab3, tab4 = _tabs[:4]
                 with tab1:
                     st.dataframe(item_df, use_container_width=True, height=400)
                 with tab2:
@@ -839,6 +863,10 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                     st.dataframe(student_df, use_container_width=True, height=400)
                 with tab4:
                     st.dataframe(stats_df, use_container_width=True)
+                if _has_mc:
+                    with _tabs[4]:
+                        st.caption("每題 A–D 選擇比例（%）；標示 ⚠️ 的題目表示誘答項比正確答案更多人選")
+                        st.dataframe(_mc_show, use_container_width=True, height=500)
 
                 # ── 圖表預覽（直接顯示原版 PNG，與下載完全一致）──
                 st.markdown("### 圖表預覽")

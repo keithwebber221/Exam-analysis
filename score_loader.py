@@ -10,6 +10,7 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 
+LOADER_VERSION = "v2-MC"
 PAPER_LABELS = {"P1", "P2", "P3", "P4"}
 INFO_COLS    = ["班別", "班號", "英文姓名", "中文姓名"]
 ABSENT_COLS  = ["缺席", "Absent", "absent", "缺考"]
