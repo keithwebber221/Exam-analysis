@@ -2,6 +2,7 @@
 # 依賴安裝：pip install pandas openpyxl plotly kaleido scipy python-docx pillow
 # 執行方式：python exam_item_analysis.py
 
+import re
 import os
 import sys
 import io
@@ -529,11 +530,22 @@ def student_summary(df: pd.DataFrame, max_scores: pd.Series,
 def question_group_analysis(df, max_scores, item_df, extras=None, absent_set=None):
     def get_parent(q):
         q = str(q)   # 防禦：確保是字串，避免 numpy.float64 等型別報錯
+        # 大題 = 卷別前綴(P1_) ＋ 題號數字；分題字母及小題 (i)(ii)(iii) 一律歸入該大題
+        # 例：Q4a(ii) → Q4；P2_Q8/9b → P2_Q8/9；P1_2c(i) → P1_2
+        m = re.match(r"^((?:P\d_)?Q?\d+(?:/\d+)?)", q)
+        if m:
+            return m.group(1)
         return q.rstrip("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
     groups = {}
+    _mc_q = set((extras or {}).get("mc_info", {}) or {})
     for q in df.columns:
         if not isinstance(q, str) or q.strip() == "":
             continue  # 跳過非字串或空白欄名
+        if q in _mc_q:
+            # MC 選擇題（Q1–Q24）自成一個大題，避免與乙部 Q1a、Q1b… 混在一起
+            _pm = re.match(r"^(P\d_)", q)
+            groups.setdefault((_pm.group(1) if _pm else "") + "MC選擇題", []).append(q)
+            continue
         groups.setdefault(get_parent(q), []).append(q)
     rows = []
     for parent, sub_qs in groups.items():
