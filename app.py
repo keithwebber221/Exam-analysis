@@ -298,114 +298,10 @@ hr {
 # ══════════════════════════════════════════════════════════════
 # 工具函數：load_data 的 BytesIO 版本
 # ══════════════════════════════════════════════════════════════
-def load_data_from_bytes(file_bytes: bytes):
-    """從 bytes 讀取 scores.xlsx（適用 Streamlit UploadedFile）"""
-    buf = io.BytesIO(file_bytes)
-    df_raw    = pd.read_excel(buf, header=None)
-    col_names = df_raw.iloc[2].tolist()
-
-    row3_vals = df_raw.iloc[3].tolist()
-    paper_labels = {"P1","P2","P3","P4"}
-    row3_str  = [str(v).strip() for v in row3_vals if pd.notna(v) and str(v).strip()!=""]
-    has_paper_row = any(v in paper_labels for v in row3_str)
-
-    if has_paper_row:
-        paper_row   = row3_vals
-        max_row     = df_raw.iloc[4].tolist()
-        student_raw = df_raw.iloc[5:].copy()
-    else:
-        paper_row   = None
-        max_row     = row3_vals
-        student_raw = df_raw.iloc[4:].copy()
-
-    student_raw.columns = col_names
-    student_raw = student_raw[
-        student_raw["中文姓名"].notna() &
-        ~student_raw["中文姓名"].astype(str).str.contains("說明|輸入", na=False)
-    ]
-
-    absent_set = set()
-    absent_col_candidates = ["缺席","Absent","absent","缺考"]
-    absent_col = next((c for c in col_names if str(c) in absent_col_candidates), None)
-    if absent_col:
-        for _, row in student_raw.iterrows():
-            val = row.get(absent_col,"")
-            if pd.notna(val) and str(val).strip() not in ["","0","nan"]:
-                absent_set.add(str(row["中文姓名"]).strip())
-
-    info_cols = ["班別","班號","英文姓名","中文姓名"] + absent_col_candidates
-
-    # ── 逐欄讀取（保留所有欄，含重複題號）──
-    # 每欄記錄：(原始欄名, Excel欄索引, paper標示, 滿分, 學生分數Series)
-    raw_q_list = []  # [(orig_name, col_idx, paper_label, max_val, score_series)]
-    for col_idx, c in enumerate(col_names):
-        if not (isinstance(c, str) and c.strip() != "" and c not in info_cols):
-            continue
-        # 取滿分
-        mv = max_row[col_idx] if col_idx < len(max_row) else np.nan
-        if isinstance(mv, pd.Series): mv = mv.iloc[0]
-        try:
-            mv = float(mv)
-        except (TypeError, ValueError):
-            mv = np.nan
-        if pd.isna(mv) or mv <= 0:
-            continue  # 跳過無效滿分欄
-
-        # 取試卷標示
-        if has_paper_row and col_idx < len(paper_row):
-            pv = paper_row[col_idx]
-            if isinstance(pv, pd.Series): pv = pv.iloc[0]
-            paper_label = str(pv).strip() if str(pv).strip() in paper_labels else "P1"
-        else:
-            paper_label = "P1"
-
-        # 取學生分數（用 iloc 按位置，避免重複欄名問題）
-        score_series = student_raw.iloc[:, col_idx]
-        raw_q_list.append((c, col_idx, paper_label, mv, score_series))
-
-    # ── 題號命名：多試卷時全部加卷別前綴，單試卷保持原名 ──
-    multi_paper = has_paper_row and len({pl for _, _, pl, _, _ in raw_q_list}) > 1
-    paper_name_seen = {}  # {base_name: count}，處理同 paper 內重複
-    final_q_list = []     # [(final_name, paper_label, max_val, score_series)]
-
-    for orig, col_idx, paper_label, mv, score_series in raw_q_list:
-        # 多份試卷：全部加卷別前綴（P1_Q1a, P2_Q1a）
-        base = f"{paper_label}_{orig}" if multi_paper else orig
-        # 若同 base 名稱重複（極少情況），加數字後綴
-        if base in paper_name_seen:
-            paper_name_seen[base] += 1
-            final_name = f"{base}_{paper_name_seen[base]}"
-        else:
-            paper_name_seen[base] = 1
-            final_name = base
-        final_q_list.append((final_name, paper_label, mv, score_series))
-
-    # ── 建立 question_cols, max_scores, score_data, paper_map ──
-    question_cols = [fn for fn, _, _, _ in final_q_list]
-    max_scores    = pd.Series({fn: mv   for fn, _, mv, _  in final_q_list})
-    paper_map     = {fn: pl             for fn, pl, _, _  in final_q_list}
-
-    _sd_cols = [sc.rename(fn) for fn, _, _, sc in final_q_list]
-    score_data = pd.concat(_sd_cols, axis=1)
-    try:
-        score_data = score_data.astype(float)
-    except Exception:
-        score_data = score_data.apply(pd.to_numeric, errors="coerce")
-    score_data.index = student_raw["中文姓名"].values
-    score_data.index.name = "姓名"
-    score_data.fillna(0, inplace=True)
-
-    # class_info
-    ci = pd.DataFrame()
-    ci["班別"]    = student_raw.iloc[:,0].values
-    ci["班號"]    = student_raw.iloc[:,1].values
-    ci["中文姓名"] = student_raw["中文姓名"].values
-    ci = ci[ci["中文姓名"].notna()].reset_index(drop=True)
-
-    return score_data, max_scores, absent_set, paper_map, ci
+from score_loader import load_data_from_bytes, load_data_with_extras, total_scores as _total_scores
 
 
-def export_excel_bytes(item_df, group_df, student_df, stats_df, exam_title):
+def export_excel_bytes(item_df, group_df, student_df, stats_df, exam_title, mc_df=None):
     """匯出 Excel 到 BytesIO"""
     buf = io.BytesIO()
     from openpyxl.styles import (PatternFill, Font, Border, Side,
@@ -438,6 +334,8 @@ def export_excel_bytes(item_df, group_df, student_df, stats_df, exam_title):
         student_df_sorted = pd.concat([student_df_sorted[~absent_mask],
                                        student_df_sorted[absent_mask]])
         student_df_sorted.to_excel(writer, sheet_name="3_學生成績", index=True)
+        if mc_df is not None and len(mc_df):
+            mc_df.to_excel(writer, sheet_name="5_MC選項分析", index=False)
         # ── 4_全班統計：自訂格式（支援多區塊）──
         wb = writer.book
         ws_stat = wb.create_sheet("4_全班統計")
@@ -560,15 +458,19 @@ def _merge_pdf_bytes(pdf_bytes_list: list) -> bytes:
 
 
 def generate_reports_zip(df, max_scores, item_df, exam_info, class_info,
-                          pass_rate, absent_set, gen_pdf=True):
+                          pass_rate, absent_set, gen_pdf=True, extras=None):
     """
     生成個人報告 ZIP（BytesIO）
     回傳：(docx_zip_bytes, pdf_zip_bytes, merged_pdf_bytes)
     pdf_zip_bytes / merged_pdf_bytes 在 LibreOffice 不可用時為 None
     """
-    total_scores = df.sum(axis=1)
+    total_scores = _total_scores(df, extras)
     total_max    = int(max_scores.sum())
     class_avg    = item_df["平均分"].sum()
+    if extras:   # 二選一大題／扣分：以有效滿分及出席學生實際平均計算
+        total_max = int(sum(extras.get("paper_max_eff", {}).values()) or total_max)
+        _present  = total_scores[~total_scores.index.isin(absent_set)]
+        class_avg = float(_present.mean()) if len(_present) else class_avg
 
     class_info_dict = {}
     if class_info is not None and len(class_info):
@@ -792,7 +694,7 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
     if uploaded:
         raw_bytes = uploaded.read()
         try:
-            df, max_scores, absent_set, paper_map, class_info = load_data_from_bytes(raw_bytes)
+            df, max_scores, absent_set, paper_map, class_info, extras = load_data_with_extras(raw_bytes)
             papers_in_excel = sorted(set(paper_map.values()))
             if len(papers_in_excel) > 1 and num_papers == 1:
                 st.warning(f"⚠️ 偵測到試卷行 {papers_in_excel}，但設定為單試卷，請調整上方試卷數目")
@@ -825,21 +727,23 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
             if analyze_btn:
                 with st.spinner("分析中，請稍候..."):
                     weighted_scores, paper_pct, _ = ea.calc_weighted_scores(
-                        df, max_scores, paper_weights, paper_map)
-                    item_df    = ea.item_analysis(df.copy(), max_scores, absent_set)
+                        df, max_scores, paper_weights, paper_map, extras=extras)
+                    item_df    = ea.item_analysis(df.copy(), max_scores, absent_set, extras=extras)
                     student_df, stats_df = ea.student_summary(
                         df.copy(), max_scores, pass_rate, absent_set,
                         paper_weights=paper_weights, paper_pct=paper_pct,
                         weighted_scores=weighted_scores, num_papers=num_papers,
-                        paper_map=paper_map)
-                    group_df   = ea.question_group_analysis(df.copy(), max_scores, item_df)
+                        paper_map=paper_map, extras=extras)
+                    group_df   = ea.question_group_analysis(df.copy(), max_scores, item_df,
+                                                             extras=extras, absent_set=absent_set)
+                    mc_df      = ea.mc_option_analysis(extras, absent_set, index=df.index)
 
                 with st.spinner("生成報告檔案中..."):
                     excel_bytes = export_excel_bytes(
-                        item_df, group_df, student_df, stats_df, exam_title)
+                        item_df, group_df, student_df, stats_df, exam_title, mc_df=mc_df)
                     docx_zip, pdf_zip, merged_pdf = generate_reports_zip(
                         df, max_scores, item_df, exam_info,
-                        class_info, pass_rate, absent_set, gen_pdf=True)
+                        class_info, pass_rate, absent_set, gen_pdf=True, extras=extras)
 
                 # 計算圖表資料（供 Plotly 互動顯示用）
                 item_plot = item_df.copy()
@@ -901,6 +805,8 @@ border-radius:6px;margin-bottom:18px;font-size:0.95em;line-height:1.8">
                 ss.class_info     = class_info
                 ss.exam_info      = exam_info
                 ss.absent_set     = absent_set
+                ss.extras         = extras
+                ss.mc_df          = mc_df
                 try:
                     ss.text_report_bytes = ctr.generate_text_report(
                         df, max_scores, paper_map,

@@ -289,7 +289,7 @@ def get_paper_groups(columns, paper_weights, paper_map=None):
     return groups
 
 
-def calc_weighted_scores(df, max_scores, paper_weights, paper_map=None):
+def calc_weighted_scores(df, max_scores, paper_weights, paper_map=None, extras=None):
     """
     計算加權總分（滿分統一為 100 分制）。
     每卷得分率 × 該卷權重 × 100，合計為加權總分。
@@ -304,6 +304,10 @@ def calc_weighted_scores(df, max_scores, paper_weights, paper_map=None):
             continue
         p_max = max_scores[cols].sum()
         p_raw = df[cols].sum(axis=1)
+        if extras:   # 二選一大題只計一題滿分；加入該卷扣分
+            p_max = extras.get("paper_max_eff", {}).get(p, p_max)
+            if p in extras.get("deductions", {}):
+                p_raw = p_raw + extras["deductions"][p].reindex(df.index).fillna(0.0)
         pct   = (p_raw / p_max * 100).round(2) if p_max > 0 else pd.Series(0.0, index=df.index)
         paper_pct[p]  = pct
         weighted      += pct * paper_weights[p]
@@ -331,13 +335,20 @@ def suggest_action(P, D):
     return "題目質素良好"
 
 def item_analysis(df: pd.DataFrame, max_scores: pd.Series,
-                  absent_set: set = None) -> pd.DataFrame:
+                  absent_set: set = None, extras: dict = None) -> pd.DataFrame:
     # 排除缺席學生後再計算 P 值和 D 值
     df_active = df[~df.index.isin(absent_set or set())]
     n = len(df_active)
     k = max(1, int(np.floor(n * TOP_BOTTOM_PCT)))
     df_temp = df_active.copy()
     df_temp["total"] = df_temp.sum(axis=1)
+    attempted = None
+    if extras:
+        for _s in extras.get("deductions", {}).values():
+            df_temp["total"] = df_temp["total"] + _s.reindex(df_temp.index).fillna(0.0)
+        attempted = extras.get("attempted")
+        if attempted is not None:
+            attempted = attempted.reindex(df_active.index).fillna(True)
     sorted_df  = df_temp.sort_values("total", ascending=False)
     high_group = sorted_df.head(k).drop(columns="total")
     low_group  = sorted_df.tail(k).drop(columns="total")
@@ -357,10 +368,20 @@ def item_analysis(df: pd.DataFrame, max_scores: pd.Series,
             skipped.append(q)
             continue
         scores    = df_active[q]
+        hq, lq    = high_group[q], low_group[q]
+        n_att     = len(scores)
+        if attempted is not None and q in attempted.columns and not attempted[q].all():
+            m_att  = attempted[q].astype(bool)          # 二選一題：只計選答學生
+            scores = scores[m_att]
+            hq, lq = hq[m_att.reindex(hq.index)], lq[m_att.reindex(lq.index)]
+            n_att  = len(scores)
+        if n_att == 0:
+            skipped.append(q)
+            continue
         P         = scores.mean() / max_s
         threshold = max_s * 0.5
-        PH = (high_group[q] >= threshold).mean()
-        PL = (low_group[q]  >= threshold).mean()
+        PH = (hq >= threshold).mean() if len(hq) else 0.0
+        PL = (lq >= threshold).mean() if len(lq) else 0.0
         D  = round(PH - PL, 3)
         results.append({
             "題號": q, "滿分": int(max_s), "平均分": round(scores.mean(), 2),
@@ -368,6 +389,7 @@ def item_analysis(df: pd.DataFrame, max_scores: pd.Series,
             "難度指數 P": round(P, 3), "鑑別度 D": D,
             "難度評級": classify_difficulty(P), "鑑別評級": classify_discrimination(D),
             "建議行動": suggest_action(P, D),
+            "作答人數": int(n_att),
         })
     if skipped:
         print(f"   ⚠️  以下題目的滿分為空白或零，已略過分析：{', '.join(str(q) for q in skipped)}")
@@ -382,7 +404,7 @@ def student_summary(df: pd.DataFrame, max_scores: pd.Series,
                     pass_rate: float = 0.4, absent_set: set = None,
                     paper_weights: dict = None, paper_pct: pd.DataFrame = None,
                     weighted_scores: pd.Series = None, num_papers: int = 1,
-                    paper_map: dict = None):
+                    paper_map: dict = None, extras: dict = None):
     absent_set  = absent_set or set()
     df2         = df.copy()
 
@@ -394,6 +416,10 @@ def student_summary(df: pd.DataFrame, max_scores: pd.Series,
     else:
         total_max   = float(max_scores.sum())
         df2["總分"]    = df2[max_scores.index].sum(axis=1)
+        if extras:
+            total_max = float(sum(extras.get("paper_max_eff", {}).values()) or total_max)
+            for _s in extras.get("deductions", {}).values():
+                df2["總分"] = df2["總分"] + _s.reindex(df2.index).fillna(0.0)
         df2["百分比(%)"] = (df2["總分"] / total_max * 100).round(1)
 
     # 排名只計算出席學生
@@ -482,6 +508,10 @@ def student_summary(df: pd.DataFrame, max_scores: pd.Series,
             # 實得分數總和 & 實際滿分
             p_raw_scores = df[p_questions].sum(axis=1)
             p_max        = float(max_scores[p_questions].sum())
+            if extras:
+                p_max = float(extras.get("paper_max_eff", {}).get(p, p_max))
+                if p in extras.get("deductions", {}):
+                    p_raw_scores = p_raw_scores + extras["deductions"][p].reindex(df.index).fillna(0.0)
             if p_max <= 0:
                 continue
             for item, val in _calc_stats(p_raw_scores, p_max, ""):
@@ -496,7 +526,7 @@ def student_summary(df: pd.DataFrame, max_scores: pd.Series,
 # ============================================================
 # 4. 大題分析
 # ============================================================
-def question_group_analysis(df, max_scores, item_df):
+def question_group_analysis(df, max_scores, item_df, extras=None, absent_set=None):
     def get_parent(q):
         q = str(q)   # 防禦：確保是字串，避免 numpy.float64 等型別報錯
         return q.rstrip("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -508,13 +538,52 @@ def question_group_analysis(df, max_scores, item_df):
     rows = []
     for parent, sub_qs in groups.items():
         gmax = max_scores[sub_qs].sum()
-        gavg = df[sub_qs].sum(axis=1).mean()
+        _gdf = df[~df.index.isin(absent_set or set())]
+        _gsum = _gdf[sub_qs].sum(axis=1)
+        if extras and extras.get("attempted") is not None:
+            _att = extras["attempted"].reindex(_gdf.index)[sub_qs].fillna(True).astype(bool).any(axis=1)
+            if not _att.all() and _att.any():
+                _gsum = _gsum[_att]            # 二選一大題：只計選答學生
+        gavg = _gsum.mean()
         avgP = round(item_df[item_df["題號"].isin(sub_qs)]["難度指數 P"].mean(), 3)
         rows.append({
             "大題": parent, "分題數": len(sub_qs), "大題滿分": int(gmax),
             "全班平均": round(gavg, 2), "平均難度 P": avgP,
             "得分率": f"{gavg/gmax*100:.1f}%" if gmax > 0 else "N/A",
             "難度評級": classify_difficulty(avgP),
+        })
+    return pd.DataFrame(rows)
+
+
+# ============================================================
+# 4b. MC 選項分析
+# ============================================================
+def mc_option_analysis(extras, absent_set=None, index=None):
+    """每題 A–D 選擇比例、答對率、最多人選的誘答項。無 MC 題則回傳空表。"""
+    info = (extras or {}).get("mc_info") or {}
+    if not info:
+        return pd.DataFrame()
+    absent_set = absent_set or set()
+    rows = []
+    for q, d in info.items():
+        ans = pd.Series(d["answers"], index=index)
+        if index is not None:
+            ans = ans[~ans.index.isin(absent_set)]
+        n = len(ans)
+        pct = {L: (ans == L).mean() * 100 if n else 0.0 for L in "ABCD"}
+        blank = (ans == "-").mean() * 100 if n else 0.0
+        wrong = {L: v for L, v in pct.items() if L != d["key"]}
+        top_w = max(wrong, key=wrong.get) if wrong else "-"
+        rate = pct[d["key"]]
+        rows.append({
+            "題號": q, "正確答案": d["key"], "答對率%": round(rate, 1),
+            "A%": round(pct["A"], 1), "B%": round(pct["B"], 1),
+            "C%": round(pct["C"], 1), "D%": round(pct["D"], 1),
+            "未答%": round(blank, 1),
+            "最多人選誘答項": top_w if wrong[top_w] > 0 else "-",
+            "誘答項%": round(wrong[top_w], 1),
+            "提示": ("⚠️ 誘答項吸引力高於正確答案" if wrong[top_w] > rate
+                     else ("🔴 答對率偏低" if rate < 40 else "")),
         })
     return pd.DataFrame(rows)
 
