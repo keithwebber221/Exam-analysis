@@ -1,9 +1,11 @@
 """
 multi_paper_reports.py
 多份試卷：每卷個人報告 ＋ 總成績報告（含排名）
-只依賴 individual_report.py 內既有的版面工具（不需要修改 individual_report.py）
+只依賴 individual_report.py 內既有的版面工具（不需要修改 individual_report.py）。
+另將 individual_report 的「各題得分率」圖表換成「依題目順序、題多時分兩圖」的新版，
+單份試卷的個人報告也一併受惠。
 """
-import io
+import io, math
 import numpy as np
 import pandas as pd
 from docx import Document
@@ -12,15 +14,83 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 import matplotlib
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
+from matplotlib.patches import Patch
 import individual_report as ir
 
 FONT = ir.DEFAULT_FONT
+MAX_PER_ROW = 18          # 每個圖表最多顯示的題數；超過就分成多個圖表
 
 
 def _label(q):
     return q.split("_", 1)[1] if "_" in q else q
 
 
+# ══════════════════════════════════════════════════════════════
+# 各題得分率圖表：依題目順序，題目多時分成多個圖表（避免疊字）
+# ══════════════════════════════════════════════════════════════
+def create_question_order_chart(df_student, max_scores, pass_rate=0.4, max_per_row=MAX_PER_ROW):
+    """回傳 (圖片buf, strong_items, good_items, weak_items)，與舊版函數介面相同。"""
+    try:
+        items = []
+        for q in df_student.index:
+            mx = float(max_scores[q])
+            items.append((q, float(df_student[q]) / mx * 100 if mx > 0 else 0.0))
+        if not items:
+            return None, [], [], []
+        strong = [(q, r) for q, r in items if r >= 80]
+        good   = [(q, r) for q, r in items if pass_rate * 100 <= r < 80]
+        weak   = [(q, r) for q, r in items if r < pass_rate * 100]
+
+        n = len(items)
+        n_rows = math.ceil(n / max_per_row)
+        per = math.ceil(n / n_rows)
+        fig, axes = plt.subplots(n_rows, 1, figsize=(11, 2.9 * n_rows + 0.4), dpi=100, squeeze=False)
+        for r, ax in enumerate(axes[:, 0]):
+            lo = r * per
+            chunk = items[lo:lo + per]
+            labels = [c[0] for c in chunk]
+            rates = [c[1] for c in chunk]
+            cols = ["#2ecc71" if v >= 80 else "#f39c12" if v >= pass_rate * 100 else "#e74c3c" for v in rates]
+            bars = ax.bar(range(len(chunk)), rates, color=cols, alpha=0.85, width=0.62,
+                          edgecolor="black", linewidth=0.8)
+            for b, v in zip(bars, rates):
+                ax.text(b.get_x() + b.get_width() / 2, v + 2, f"{v:.0f}%", ha="center",
+                        va="bottom", fontsize=9, fontweight="bold")
+            ax.set_xticks(range(len(chunk)))
+            fs = 8.5 if max(len(s) for s in labels) > 6 else 10
+            ax.set_xticklabels(labels, fontsize=fs, fontweight="bold")
+            ax.set_xlim(-0.7, per - 0.3)
+            ax.set_ylim(0, 118)
+            ax.set_ylabel("得分率 %", fontsize=10, fontweight="bold")
+            ax.axhline(80, color="green", linestyle="--", alpha=0.4, linewidth=1.2)
+            ax.axhline(pass_rate * 100, color="orange", linestyle="--", alpha=0.5, linewidth=1.2)
+            ax.grid(axis="y", alpha=0.25, linestyle="--", linewidth=0.6)
+            ax.set_axisbelow(True)
+            part = f"（第 {lo + 1}–{lo + len(chunk)} 題）" if n_rows > 1 else ""
+            ax.set_title("各題得分率（依題目順序）" + part, fontsize=12, fontweight="bold", loc="left")
+        handles = [Patch(color="#2ecc71", label="優秀 ≥80%"),
+                   Patch(color="#f39c12", label=f"合格 ≥{pass_rate * 100:g}%"),
+                   Patch(color="#e74c3c", label=f"不合格 <{pass_rate * 100:g}%")]
+        fig.legend(handles=handles, loc="upper right", ncol=3, fontsize=9, frameon=False)
+        fig.patch.set_facecolor("white")
+        plt.tight_layout(rect=(0, 0, 1, 0.97))
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=100, bbox_inches="tight", facecolor="white")
+        buf.seek(0); plt.close(fig)
+        return buf, strong, good, weak
+    except Exception as e:
+        print(f"   ⚠️  各題得分率圖表生成失敗：{e}")
+        plt.close("all")
+        return None, [], [], []
+
+
+# 讓 individual_report 內（單份試卷）的個人報告也使用新圖表
+ir.create_strong_weak_analysis_chart_v2 = create_question_order_chart
+
+
+# ══════════════════════════════════════════════════════════════
+# 統計
+# ══════════════════════════════════════════════════════════════
 def compute_tables(df, max_scores, paper_map, paper_weights, extras, absent_set):
     """各卷得分（含扣分）、有效滿分、得分率、加權總分、排名、全班平均。"""
     extras = extras or {}
@@ -80,9 +150,11 @@ def _cell_fmt(cell, size=10, bold=False, color=None, bg=None, align="c"):
                 run.font.color.rgb = RGBColor(*color)
 
 
+# ══════════════════════════════════════════════════════════════
+# 每卷個人報告
+# ══════════════════════════════════════════════════════════════
 def _paper_doc(name, title, score, paper_max, stu, mx_sub, skip, notes, ded,
                avg_score, rank_text, class_info, pass_rate):
-    """單一試卷的個人報告（版面與原個人報告一致，另有排名、扣分、MC 錯題標註）。"""
     doc = Document()
     sec = doc.sections[0]
     sec.page_height = Inches(11.69); sec.page_width = Inches(8.27)
@@ -116,7 +188,7 @@ def _paper_doc(name, title, score, paper_max, stu, mx_sub, skip, notes, ded,
         _cell_fmt(c, 10, True, (255, 255, 255), "1f4e78")
 
     shown = []
-    for q in stu.index:
+    for q in stu.index:                      # 依題目順序列出
         if q in skip:
             continue
         sc, mx = float(stu[q]), float(mx_sub[q])
@@ -142,14 +214,10 @@ def _paper_doc(name, title, score, paper_max, stu, mx_sub, skip, notes, ded,
     except Exception:
         pass
     doc.add_paragraph()
-    try:
-        s2 = stu[shown]
-        out = ir.create_strong_weak_analysis_chart_v2(s2, mx_sub[shown], pass_rate)
-        if out and out[0]:
-            p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            doc.add_picture(out[0], width=Inches(7.5)); out[0].close()
-    except Exception:
-        pass
+    out = create_question_order_chart(stu[shown], mx_sub[shown], pass_rate)
+    if out[0]:
+        p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        doc.add_picture(out[0], width=Inches(7.5)); out[0].close()
     return doc
 
 
@@ -194,6 +262,9 @@ def build_paper_report(name, p, T, df, max_scores, paper_map, extras, exam_info,
                       float(T["avg_raw"][p]), rank_text, class_info, pass_rate)
 
 
+# ══════════════════════════════════════════════════════════════
+# 總成績報告
+# ══════════════════════════════════════════════════════════════
 def _paper_bar_chart(papers, stu_pct, avg_pct, pass_rate):
     fig, ax = plt.subplots(figsize=(10, 1.4 + 1.1 * len(papers)), dpi=100)
     y = np.arange(len(papers))[::-1]
@@ -203,7 +274,7 @@ def _paper_bar_chart(papers, stu_pct, avg_pct, pass_rate):
         ax.text(a_ + 1, yy + 0.18, f"{a_:.1f}%", va="center", fontsize=10, color="#b9770e")
         ax.text(s_ + 1, yy - 0.18, f"{s_:.1f}%", va="center", fontsize=10, color="#1f618d", fontweight="bold")
     ax.axvline(pass_rate * 100, color="#e74c3c", linestyle="--", alpha=0.6)
-    ax.text(pass_rate * 100, len(papers) - 0.35, f"及格線 {pass_rate * 100:g}%", color="#e74c3c",
+    ax.text(pass_rate * 100, len(papers) - 0.35, f"合格線 {pass_rate * 100:g}%", color="#e74c3c",
             fontsize=9, ha="center")
     ax.set_yticks(y); ax.set_yticklabels(papers, fontsize=12, fontweight="bold")
     ax.set_xlim(0, 112); ax.set_xlabel("得分率 %", fontsize=11)
@@ -247,7 +318,7 @@ def build_total_report(name, T, df, extras, exam_info, class_info, pass_rate):
     rk = T["rank_total"][name]
     passed = wscore >= pass_rate * 100
     para(f"加權總分：{wscore:.1f} / 100　　排名：{int(rk)} / {T['n_present']}　　"
-         f"{'及格' if passed else '未及格'}", 15, True,
+         f"{'合格' if passed else '不合格'}", 15, True,
          (0, 110, 50) if passed else (192, 57, 43), space=6)
 
     hdr = ["試卷", "比重", "得分 / 滿分", "得分率", "全班平均", "與平均差距", "試卷排名"]
