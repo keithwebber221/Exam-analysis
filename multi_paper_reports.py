@@ -298,14 +298,7 @@ def build_paper_report(name, p, T, df, max_scores, paper_map, extras, exam_info,
     stu.index = [labels[q] for q in cols]
     mx_sub = pd.Series({labels[q]: float(max_scores[q]) for q in cols})
 
-    notes = {}
-    pos = df.index.get_loc(name)
-    for q, d in (extras.get("mc_info") or {}).items():
-        if q in labels and not isinstance(pos, slice):
-            chosen = d["answers"][pos]
-            if df.loc[name, q] < d["marks"]:
-                notes[labels[q]] = (f"(選{chosen}/答{d['key']})" if chosen != "-"
-                                    else f"(未答/答{d['key']})")
+    notes = {}   # 個人報告不顯示 MC 的選項／答案
 
     ded = 0.0
     if p in extras.get("deductions", {}):
